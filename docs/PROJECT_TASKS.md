@@ -109,6 +109,10 @@ Goals:
 - Build a stronger baseline than simple S-G + FFT
 - Implement dual-path HR estimation and fusion
 
+Current status:
+- Stage 1 first-round baseline is implemented with enhanced preprocessing, an enhanced Welch frequency chain, a time-domain peak chain, and minimal rule-based fusion
+- Stage 2 and later stages have not started yet
+
 Algorithms:
 - Detrending
 - Zero-phase bandpass filtering
@@ -352,4 +356,3 @@ A stage is considered complete only if:
 
 
 ---
-

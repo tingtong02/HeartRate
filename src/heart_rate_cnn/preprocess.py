@@ -18,6 +18,94 @@ def resample_signal(samples: np.ndarray, original_fs: float, target_fs: float) -
     return signal.resample(array, target_length, axis=0)
 
 
+def bandpass_filter_ppg(
+    samples: np.ndarray,
+    fs: float,
+    low_hz: float,
+    high_hz: float,
+    order: int = 3,
+) -> np.ndarray:
+    array = np.asarray(samples, dtype=float).reshape(-1)
+    nyquist = 0.5 * fs
+    if array.size < 8 or low_hz <= 0 or high_hz <= low_hz or high_hz >= nyquist:
+        return array.copy()
+
+    sos = signal.butter(order, [low_hz / nyquist, high_hz / nyquist], btype="bandpass", output="sos")
+    try:
+        return signal.sosfiltfilt(sos, array)
+    except ValueError:
+        return signal.sosfilt(sos, array)
+
+
+def normalize_signal(samples: np.ndarray) -> np.ndarray:
+    array = np.asarray(samples, dtype=float).reshape(-1)
+    centered = array - np.mean(array)
+    scale = np.std(centered)
+    if scale <= 1e-8:
+        return centered
+    return centered / scale
+
+
+def smooth_signal_savgol(
+    samples: np.ndarray,
+    fs: float,
+    window_seconds: float,
+    polyorder: int = 2,
+) -> np.ndarray:
+    array = np.asarray(samples, dtype=float).reshape(-1)
+    if array.size < 5:
+        return array.copy()
+
+    window_length = max(int(round(window_seconds * fs)), polyorder + 2)
+    if window_length % 2 == 0:
+        window_length += 1
+    if window_length >= array.size:
+        window_length = array.size - 1 if array.size % 2 == 0 else array.size
+    if window_length <= polyorder or window_length < 3:
+        return array.copy()
+    return signal.savgol_filter(array, window_length=window_length, polyorder=polyorder)
+
+
+def preprocess_ppg_stage1(
+    samples: np.ndarray,
+    fs: float,
+    *,
+    bandpass_low_hz: float = 0.6,
+    bandpass_high_hz: float = 3.5,
+    bandpass_order: int = 3,
+    smooth_window_seconds: float = 0.20,
+    smooth_polyorder: int = 2,
+    extra_smoothing: bool = False,
+) -> np.ndarray:
+    array = np.asarray(samples, dtype=float).reshape(-1)
+    if array.size < 4:
+        return array.copy()
+
+    processed = signal.detrend(array - np.mean(array))
+    processed = bandpass_filter_ppg(
+        processed,
+        fs=fs,
+        low_hz=bandpass_low_hz,
+        high_hz=bandpass_high_hz,
+        order=bandpass_order,
+    )
+    processed = normalize_signal(processed)
+    processed = smooth_signal_savgol(
+        processed,
+        fs=fs,
+        window_seconds=smooth_window_seconds,
+        polyorder=smooth_polyorder,
+    )
+    if extra_smoothing:
+        processed = smooth_signal_savgol(
+            processed,
+            fs=fs,
+            window_seconds=max(smooth_window_seconds * 1.5, smooth_window_seconds + 0.05),
+            polyorder=smooth_polyorder,
+        )
+    return processed
+
+
 def trim_record_to_common_duration(record: SubjectRecord) -> SubjectRecord:
     durations = [record.ppg.shape[0] / record.ppg_fs, record.ecg.shape[0] / record.ecg_fs]
     if record.acc is not None and record.acc_fs is not None:

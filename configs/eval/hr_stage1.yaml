@@ -1,0 +1,47 @@
+preprocess:
+  target_ppg_fs: 64
+  window_seconds: 8.0
+  step_seconds: 2.0
+
+eval:
+  random_seed: 42
+  test_size: 0.3
+  hr_band_bpm: [40, 180]
+
+stage1:
+  preprocess:
+    bandpass_low_hz: 0.6
+    bandpass_high_hz: 3.5
+    bandpass_order: 3
+    smooth_window_seconds: 0.20
+    smooth_polyorder: 2
+  frequency:
+    bandpass_low_hz: 0.6
+    bandpass_high_hz: 3.5
+    bandpass_order: 3
+    smooth_window_seconds: 0.20
+    smooth_polyorder: 2
+    extra_smoothing: false
+    welch_nperseg_seconds: 8.0
+    nfft_min: 2048
+    edge_margin_bpm: 5.0
+    min_peak_power_fraction: 0.10
+  time:
+    bandpass_low_hz: 0.6
+    bandpass_high_hz: 3.5
+    bandpass_order: 3
+    smooth_window_seconds: 0.20
+    smooth_polyorder: 2
+    extra_smoothing: true
+    envelope_smooth_window_seconds: 0.12
+    prominence_scale: 0.35
+    min_prominence: 0.05
+    min_peaks: 3
+    min_width_seconds: 0.08
+  fusion:
+    agreement_threshold_bpm: 6.0
+    conflict_threshold_bpm: 12.0
+
+output:
+  save_csv: true
+  output_dir: outputs

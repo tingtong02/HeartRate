@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 
 import numpy as np
+import pandas as pd
 
 
 def compute_hr_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict[str, float]:
@@ -37,3 +38,42 @@ def compute_hr_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict[str, floa
         "pearson_r": pearson_r,
         "num_valid_windows": float(y_true.size),
     }
+
+
+def compute_method_metrics(
+    frame: pd.DataFrame,
+    ref_col: str,
+    pred_col: str,
+    valid_col: str | None = None,
+    method: str | None = None,
+) -> dict[str, float | str]:
+    valid_mask = frame[ref_col].notna() & frame[pred_col].notna()
+    if valid_col is not None:
+        valid_mask &= frame[valid_col].astype(bool)
+
+    metrics = compute_hr_metrics(
+        frame.loc[valid_mask, ref_col].to_numpy(),
+        frame.loc[valid_mask, pred_col].to_numpy(),
+    )
+    if method is not None:
+        return {"method": method, **metrics}
+    return metrics
+
+
+def summarize_method_metrics(
+    frame: pd.DataFrame,
+    method_specs: dict[str, dict[str, str | None]],
+    ref_col: str = "ref_hr_bpm",
+) -> pd.DataFrame:
+    rows = []
+    for method, spec in method_specs.items():
+        rows.append(
+            compute_method_metrics(
+                frame=frame,
+                ref_col=ref_col,
+                pred_col=str(spec["pred_col"]),
+                valid_col=spec.get("valid_col"),
+                method=method,
+            )
+        )
+    return pd.DataFrame(rows)
