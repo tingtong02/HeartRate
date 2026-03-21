@@ -1,0 +1,18 @@
+dataset:
+  name: ppg_dalia
+  root_dir: ""
+  subject_include: null
+
+preprocess:
+  target_ppg_fs: 64
+  window_seconds: 8.0
+  step_seconds: 2.0
+
+eval:
+  random_seed: 42
+  test_size: 0.3
+  hr_band_bpm: [40, 180]
+
+output:
+  save_csv: false
+  output_dir: outputs

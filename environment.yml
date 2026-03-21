@@ -1,0 +1,16 @@
+name: HeartRate_env
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip
+  - numpy
+  - scipy
+  - pandas
+  - scikit-learn
+  - pyyaml
+  - tqdm
+  - h5py
+  - joblib
+  - matplotlib
+  - pytest
