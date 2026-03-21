@@ -1,7 +1,7 @@
 # HeartRate_CNN
 
 HeartRate_CNN is a public-dataset PPG heart rate analysis project.  
-The current repository state now includes **Stage 2 first-round beat / IBI / time-domain PRV-HRV work** on top of the Stage 0 and Stage 1 foundations.
+The current repository state now includes **Stage 2 enhancement-round beat / IBI / time-domain PRV-HRV work** on top of the Stage 0 and Stage 1 foundations.
 
 ## Current Status
 
@@ -21,7 +21,8 @@ Implemented so far:
 - a Stage 2 beat detection path based on direct peak finding over Stage 1 style preprocessed PPG
 - a Stage 2 IBI extraction and cleaning path
 - a Stage 2 basic time-domain PRV/HRV feature path
-- a Stage 2 evaluation script for beat / IBI / feature comparison
+- a Stage 2 evaluation script that compares `baseline` and `enhanced` beat / IBI / feature pipelines on the same analysis windows
+- optional lightweight Stage 2 worst-window CSV summaries for error review
 - basic evaluation metrics
 - smoke test and pytest coverage
 
@@ -145,8 +146,9 @@ To reproduce the Stage 2 evaluation:
 
 - create local dataset configs the same way as Stage 0 / Stage 1
 - keep the default subject-wise split seed unless you are intentionally running a new comparison
-- run `run_stage2_baseline.py` once per dataset
+- run `run_stage2_baseline.py` once per dataset; it will emit both `baseline` and `enhanced` results in the same output tables
 - use `outputs/{dataset}_stage2_metrics.csv` as the source of record
+- optionally set `stage2.debug.save_error_cases: true` in `configs/eval/hr_stage2.yaml` to write a lightweight `outputs/{dataset}_stage2_error_cases.csv`
 
 To reproduce the Stage 1 comparison fairly:
 
@@ -197,36 +199,24 @@ Stage 2 still does not include:
 
 ## Stage 2 Results
 
-First-round real evaluation results:
+Enhancement-round real evaluation results:
 
 `PPG-DaLiA`
-- beat detection: precision `0.4854`, recall `0.3510`, f1 `0.4074`, beat_count_error `26.8503`
-- IBI error: MAE `65.6322 ms`, RMSE `88.3973 ms`, valid IBI pairs `18372`
-- feature highlights:
-  - `mean_ibi_ms`: MAE `153.5016`, Pearson `0.4771`
-  - `median_ibi_ms`: MAE `129.7529`, Pearson `0.4655`
-  - `mean_hr_bpm_from_ibi`: MAE `19.8757`, Pearson `0.2717`
-  - `sdnn_ms`: MAE `72.2186`, Pearson `0.0576`
-  - `rmssd_ms`: MAE `89.1385`, Pearson `0.1360`
-  - `ibi_cv`: MAE `0.0869`, Pearson `0.1005`
+- `baseline`: beat f1 `0.4073`, `ibi_rmse_ms 82.7283`, `mean_ibi_ms` MAE `150.6063`, `median_ibi_ms` MAE `126.9604`, `sdnn_ms` MAE `71.9162`, `rmssd_ms` MAE `89.5698`, `ibi_cv` MAE `0.0869`
+- `enhanced`: beat f1 `0.4479`, `ibi_rmse_ms 73.0118`, `mean_ibi_ms` MAE `71.5637`, `median_ibi_ms` MAE `65.5073`, `sdnn_ms` MAE `48.9403`, `rmssd_ms` MAE `46.8822`, `ibi_cv` MAE `0.0778`
 
 `WESAD`
-- beat detection: precision `0.4768`, recall `0.3820`, f1 `0.4242`, beat_count_error `17.3936`
-- IBI error: MAE `59.9759 ms`, RMSE `84.2615 ms`, valid IBI pairs `16033`
-- feature highlights:
-  - `mean_ibi_ms`: MAE `97.5454`, Pearson `0.6355`
-  - `median_ibi_ms`: MAE `83.9194`, Pearson `0.6592`
-  - `mean_hr_bpm_from_ibi`: MAE `12.2677`, Pearson `0.4882`
-  - `sdnn_ms`: MAE `63.7618`, Pearson `0.0982`
-  - `rmssd_ms`: MAE `98.9918`, Pearson `-0.0234`
-  - `ibi_cv`: MAE `0.0804`, Pearson `0.0459`
+- `baseline`: beat f1 `0.4241`, `ibi_rmse_ms 81.1065`, `mean_ibi_ms` MAE `96.1951`, `median_ibi_ms` MAE `83.5158`, `sdnn_ms` MAE `62.6055`, `rmssd_ms` MAE `98.8140`, `ibi_cv` MAE `0.0795`
+- `enhanced`: beat f1 `0.4477`, `ibi_rmse_ms 67.0309`, `mean_ibi_ms` MAE `66.8864`, `median_ibi_ms` MAE `62.6820`, `sdnn_ms` MAE `38.7060`, `rmssd_ms` MAE `50.6693`, `ibi_cv` MAE `0.0603`
 
 Current Stage 2 takeaway:
 
-- Stage 2 first round is already runnable, measurable, and reproducible
-- mean / median IBI related outputs are relatively more usable than variability features
-- `sdnn_ms`, `rmssd_ms`, and `ibi_cv` are still weak in this first-round implementation
-- the next Stage 2 improvement should focus on beat detection and IBI cleaning, not on expanding the feature set first
+- Stage 2 enhancement round is runnable, measurable, and reproducible
+- the enhancement path improves the two highest-priority metrics on both datasets: beat `f1` and `ibi_rmse_ms`
+- `mean_ibi_ms` and `median_ibi_ms` are now clearly more usable than in the first round
+- variability features such as `sdnn_ms`, `rmssd_ms`, and `ibi_cv` also improve, but they are still weaker and remain more sensitive to beat / IBI errors than mean / median summaries
+- beat detection and IBI cleaning are now strong enough for Stage 2 to serve as a reasonable base for Stage 3
+- if more Stage 2 work is done later, it should still focus on beat detection and IBI cleaning, but its priority is now lower than starting Stage 3
 
 ## Dataset Notes
 
@@ -249,8 +239,8 @@ For more detail, see:
 - Stage 0 provides only a minimal frequency-domain HR baseline.
 - Stage 1 is still a lightweight classical-signal baseline system, not a final robust estimator.
 - Stage 1 frequency is currently the best-performing path; fusion is mainly improving coverage and robustness relative to Stage 0, not surpassing the frequency chain yet.
-- Stage 2 first round is limited to beat / IBI / basic time-domain PRV-HRV only.
-- Stage 2 first round is more reliable for mean / median IBI style summaries than for variability features such as `sdnn_ms`, `rmssd_ms`, and `ibi_cv`.
+- Stage 2 enhancement round is still limited to beat / IBI / basic time-domain PRV-HRV only.
+- Stage 2 is more reliable for mean / median IBI style summaries than for variability features such as `sdnn_ms`, `rmssd_ms`, and `ibi_cv`.
 - Current baseline quality is intended for reproducible validation, not final performance.
 - Dataset configs in the repository are templates only; local paths must be set in ignored `*.local.yaml` files.
 - If a dataset variant changes pickle keys or file layout, the loader may need a small compatibility update.

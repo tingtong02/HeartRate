@@ -2,13 +2,14 @@
 
 ## Scope
 
-Stage 2 first round only covers:
+Stage 2 enhancement round still only covers:
 
 - beat detection
 - IBI extraction
 - IBI cleaning
 - basic time-domain PRV/HRV features
 - Stage 2 evaluation
+- lightweight numeric error-case review
 
 This round does not include SQI, event detection, irregular pulse screening, respiration, or deep learning.
 
@@ -51,6 +52,8 @@ python scripts/run_stage2_baseline.py \
   --dataset-config configs/datasets/wesad.local.yaml
 ```
 
+Each run now writes both `baseline` and `enhanced` results for the same subject split and the same analysis windows.
+
 ## Stage 2 Defaults
 
 - beat detection runs on Stage 1 style preprocessed PPG
@@ -58,6 +61,8 @@ python scripts/run_stage2_baseline.py \
 - default analysis window is `60 s`
 - default analysis step is `30 s`
 - Stage 2 keeps `stage1_frequency` as the current strongest HR baseline background
+- `run_stage2_baseline.py` compares `baseline` and `enhanced` variants in one pass
+- lightweight error-case export is off by default and can be enabled from `configs/eval/hr_stage2.yaml`
 
 ## Outputs
 
@@ -66,40 +71,48 @@ Stage 2 writes:
 - `outputs/{dataset}_stage2_beats.csv`
 - `outputs/{dataset}_stage2_features.csv`
 - `outputs/{dataset}_stage2_metrics.csv`
+- optional `outputs/{dataset}_stage2_error_cases.csv`
 
-Use `outputs/{dataset}_stage2_metrics.csv` as the primary summary file when reproducing Stage 2 results.
+Use `outputs/{dataset}_stage2_metrics.csv` as the primary summary file when reproducing Stage 2 results.  
+If `stage2.debug.save_error_cases: true`, the extra CSV contains only the worst few analysis windows per variant as a numeric summary. It does not create images or a separate visualization system.
 
-## Real First-Round Results
+## Real Enhancement-Round Results
 
 `PPG-DaLiA`
-- beat detection: precision `0.4854`, recall `0.3510`, f1 `0.4074`, beat_count_error `26.8503`
-- IBI error: MAE `65.6322 ms`, RMSE `88.3973 ms`, valid IBI pairs `18372`
+- `baseline`: beat precision `0.4855`, recall `0.3508`, f1 `0.4073`, beat_count_error `26.9110`
+- `baseline`: IBI MAE `61.3743 ms`, RMSE `82.7283 ms`, valid IBI pairs `16343`
+- `enhanced`: beat precision `0.4874`, recall `0.4143`, f1 `0.4479`, beat_count_error `15.5033`
+- `enhanced`: IBI MAE `53.1301 ms`, RMSE `73.0118 ms`, valid IBI pairs `19029`
 - feature highlights:
-  - `mean_ibi_ms`: MAE `153.5016`, Pearson `0.4771`
-  - `median_ibi_ms`: MAE `129.7529`, Pearson `0.4655`
-  - `sdnn_ms`: MAE `72.2186`, Pearson `0.0576`
-  - `rmssd_ms`: MAE `89.1385`, Pearson `0.1360`
-  - `ibi_cv`: MAE `0.0869`, Pearson `0.1005`
+  - `mean_ibi_ms`: baseline MAE `150.6063`, enhanced MAE `71.5637`
+  - `median_ibi_ms`: baseline MAE `126.9604`, enhanced MAE `65.5073`
+  - `sdnn_ms`: baseline MAE `71.9162`, enhanced MAE `48.9403`
+  - `rmssd_ms`: baseline MAE `89.5698`, enhanced MAE `46.8822`
+  - `ibi_cv`: baseline MAE `0.0869`, enhanced MAE `0.0778`
 
 `WESAD`
-- beat detection: precision `0.4768`, recall `0.3820`, f1 `0.4242`, beat_count_error `17.3936`
-- IBI error: MAE `59.9759 ms`, RMSE `84.2615 ms`, valid IBI pairs `16033`
+- `baseline`: beat precision `0.4766`, recall `0.3819`, f1 `0.4241`, beat_count_error `17.3876`
+- `baseline`: IBI MAE `57.6451 ms`, RMSE `81.1065 ms`, valid IBI pairs `15091`
+- `enhanced`: beat precision `0.4815`, recall `0.4182`, f1 `0.4477`, beat_count_error `12.6335`
+- `enhanced`: IBI MAE `46.4785 ms`, RMSE `67.0309 ms`, valid IBI pairs `15466`
 - feature highlights:
-  - `mean_ibi_ms`: MAE `97.5454`, Pearson `0.6355`
-  - `median_ibi_ms`: MAE `83.9194`, Pearson `0.6592`
-  - `sdnn_ms`: MAE `63.7618`, Pearson `0.0982`
-  - `rmssd_ms`: MAE `98.9918`, Pearson `-0.0234`
-  - `ibi_cv`: MAE `0.0804`, Pearson `0.0459`
+  - `mean_ibi_ms`: baseline MAE `96.1951`, enhanced MAE `66.8864`
+  - `median_ibi_ms`: baseline MAE `83.5158`, enhanced MAE `62.6820`
+  - `sdnn_ms`: baseline MAE `62.6055`, enhanced MAE `38.7060`
+  - `rmssd_ms`: baseline MAE `98.8140`, enhanced MAE `50.6693`
+  - `ibi_cv`: baseline MAE `0.0795`, enhanced MAE `0.0603`
 
 Current interpretation:
 
-- Stage 2 first round is runnable, measurable, and reproducible
-- mean / median IBI style outputs are relatively more usable
-- variability features such as `sdnn_ms`, `rmssd_ms`, and `ibi_cv` are still weak
-- the next improvement should focus on beat detection and IBI cleaning before adding more feature types
+- Stage 2 enhancement round is runnable, measurable, and reproducible
+- the enhanced variant improves the top-priority metrics on both datasets: beat `f1` and `ibi_rmse_ms`
+- `mean_ibi_ms` and `median_ibi_ms` also improve strongly on both datasets
+- `sdnn_ms`, `rmssd_ms`, and `ibi_cv` improve, but they remain more fragile than mean / median IBI summaries
+- beat detection and IBI cleaning are now strong enough for Stage 2 to act as a practical foundation for Stage 3
+- if Stage 2 is revisited later, the next enhancement should still focus on beat detection and IBI cleaning rather than on adding new feature families first
 
 ## Notes
 
 - Beat detection is direct peak finding plus local refinement, not a Hilbert-envelope-first design.
-- The first-round feature set is strictly time-domain only.
+- The feature set is still strictly time-domain only.
 - Stage 3 has not started.

@@ -12,7 +12,7 @@ Stage 1 only covers a stronger heart-rate main pipeline:
 
 This round does not include SQI, beat detection, IBI/HRV, event detection, respiration, or deep learning.
 
-Stage 2 has not started.
+Stage 2 now exists as a separate beat / IBI / basic time-domain PRV-HRV layer. Stage 3 has not started.
 
 ## Environment
 

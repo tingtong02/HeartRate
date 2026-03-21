@@ -28,8 +28,31 @@ def test_detect_beats_in_window_finds_expected_pulse_count() -> None:
     fs = 64.0
     bpm = 75.0
     _, signal = _make_ppg_like_signal(fs, bpm, duration_s=12.0)
-    beats = detect_beats_in_window(signal, fs=fs)
+    beats = detect_beats_in_window(signal, fs=fs, config={"variant_mode": "enhanced"})
     assert 12 <= beats.size <= 16
+
+
+def test_detect_beats_in_window_handles_amplitude_variation() -> None:
+    fs = 64.0
+    bpm = 72.0
+    time, signal = _make_ppg_like_signal(fs, bpm, duration_s=12.0)
+    signal = signal * (1.0 + 0.35 * np.sin(2 * np.pi * 0.08 * time)) + 0.05 * np.sin(2 * np.pi * 0.2 * time)
+    beats = detect_beats_in_window(signal, fs=fs, config={"variant_mode": "enhanced"})
+    assert 11 <= beats.size <= 15
+
+
+def test_detect_beats_in_window_prunes_close_double_peaks() -> None:
+    fs = 64.0
+    signal = np.zeros(256, dtype=float)
+    for center in (48, 112, 176):
+        signal += np.exp(-0.5 * ((np.arange(signal.size) - center) / 2.5) ** 2)
+        signal += 0.55 * np.exp(-0.5 * ((np.arange(signal.size) - (center + 5)) / 2.0) ** 2)
+    beats = detect_beats_in_window(
+        signal,
+        fs=fs,
+        config={"variant_mode": "enhanced", "hr_max_bpm": 180.0, "refine_radius_seconds": 0.08},
+    )
+    assert beats.size == 3
 
 
 def test_refine_beats_moves_peaks_to_local_maxima() -> None:
@@ -52,9 +75,16 @@ def test_extract_ibi_from_beats_returns_expected_values() -> None:
 
 def test_clean_ibi_series_removes_outlier_interval() -> None:
     ibi = np.array([0.80, 0.82, 1.40, 0.81, 0.79], dtype=float)
-    cleaned = clean_ibi_series(ibi, {"max_deviation_ratio": 0.20})
+    cleaned = clean_ibi_series(ibi, {"variant_mode": "enhanced", "max_deviation_ratio": 0.20})
     assert cleaned["ibi_is_valid"]
     assert cleaned["ibi_clean_s"].size == 4
+
+
+def test_clean_ibi_series_preserves_short_reasonable_sequence() -> None:
+    ibi = np.array([0.80, 0.77, 0.84, 0.79], dtype=float)
+    cleaned = clean_ibi_series(ibi, {"variant_mode": "enhanced", "short_series_threshold": 5})
+    assert cleaned["ibi_clean_s"].size == ibi.size
+    assert cleaned["num_ibi_removed"] == 0.0
 
 
 def test_compute_time_domain_prv_features_returns_expected_keys() -> None:
@@ -90,6 +120,33 @@ def test_preprocess_ppg_for_beats_keeps_signal_finite() -> None:
     processed = preprocess_ppg_for_beats(signal, fs=fs)
     assert processed.shape == signal.shape
     assert np.all(np.isfinite(processed))
+
+
+def test_enhanced_cleaning_reduces_variability_feature_distortion() -> None:
+    noisy_ibi = np.array([0.80, 0.81, 0.62, 0.98, 0.82, 0.80], dtype=float)
+    baseline = clean_ibi_series(noisy_ibi, {"variant_mode": "baseline"})
+    enhanced = clean_ibi_series(
+        noisy_ibi,
+        {
+            "variant_mode": "enhanced",
+            "max_deviation_ratio": 0.25,
+            "adjacent_jump_ratio": 0.20,
+            "jump_anchor_ratio": 0.10,
+        },
+    )
+    baseline_features = compute_time_domain_prv_features(
+        baseline["ibi_clean_s"],
+        num_beats=7,
+        num_ibi_raw=noisy_ibi.size,
+        num_ibi_clean=baseline["ibi_clean_s"].size,
+    )
+    enhanced_features = compute_time_domain_prv_features(
+        enhanced["ibi_clean_s"],
+        num_beats=7,
+        num_ibi_raw=noisy_ibi.size,
+        num_ibi_clean=enhanced["ibi_clean_s"].size,
+    )
+    assert enhanced_features["sdnn_ms"] <= baseline_features["sdnn_ms"]
 
 
 def test_summarize_feature_metrics_returns_rows() -> None:

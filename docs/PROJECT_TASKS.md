@@ -139,8 +139,10 @@ Goals:
 - Extract reliable IBI sequences
 
 Current status:
-- Stage 2 first-round implementation is focused only on beat detection, IBI extraction/cleaning, and basic time-domain PRV/HRV feature evaluation
-- Stage 2 first-round results indicate mean / median IBI style outputs are more usable than variability features, so future Stage 2 enhancement should prioritize beat detection and IBI cleaning
+- Stage 2 implementation is still focused only on beat detection, IBI extraction/cleaning, and basic time-domain PRV/HRV feature evaluation
+- Stage 2 enhancement-round results improved the highest-priority metrics on both PPG-DaLiA and WESAD: beat F1 increased and IBI RMSE decreased relative to the Stage 2 baseline variant
+- Mean / median IBI style outputs are now clearly more usable than in the first round, while variability features still benefit from further beat detection and IBI cleaning improvements
+- Stage 2 is now strong enough to serve as the foundation for Stage 3, so deeper Stage 2 tuning is lower priority than beginning the next stage
 - Stage 3 and later stages have not started yet
 
 Algorithms:

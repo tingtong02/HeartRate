@@ -13,22 +13,40 @@ stage2:
     bandpass_high_hz: 3.5
     bandpass_order: 3
     smooth_window_seconds: 0.20
+    refine_smooth_window_seconds: 0.10
     smooth_polyorder: 2
     extra_smoothing: true
+    refine_extra_smoothing: false
+    hr_min_bpm: 45.0
     hr_max_bpm: 180.0
     min_prominence: 0.05
     prominence_scale: 0.35
+    prominence_percentile_low: 60.0
+    prominence_percentile_high: 90.0
+    prominence_percentile_scale: 0.18
     min_width_seconds: 0.08
+    max_width_seconds: 0.45
     refine_radius_seconds: 0.08
-    refractory_scale: 1.5
+    support_window_seconds: 0.10
+    refractory_scale: 1.15
+    isolated_gap_scale: 1.15
+    low_quality_ratio: 0.55
+    drop_sparse_low_quality: false
+    use_baseline_recall_safeguard: true
   ibi:
     min_ibi_s: 0.33
     max_ibi_s: 1.5
     local_median_radius: 2
-    max_deviation_ratio: 0.30
+    max_deviation_ratio: 0.25
+    adjacent_jump_ratio: 0.22
+    jump_anchor_ratio: 0.12
+    short_series_threshold: 5
     min_clean_ibi: 3
   matching:
     tolerance_seconds: 0.15
+  debug:
+    save_error_cases: false
+    max_cases_per_variant: 10
 
 output:
   save_csv: true
