@@ -1,0 +1,35 @@
+preprocess:
+  target_ppg_fs: 64
+
+eval:
+  random_seed: 42
+  test_size: 0.3
+
+stage2:
+  analysis_window_seconds: 60.0
+  analysis_step_seconds: 30.0
+  beat:
+    bandpass_low_hz: 0.6
+    bandpass_high_hz: 3.5
+    bandpass_order: 3
+    smooth_window_seconds: 0.20
+    smooth_polyorder: 2
+    extra_smoothing: true
+    hr_max_bpm: 180.0
+    min_prominence: 0.05
+    prominence_scale: 0.35
+    min_width_seconds: 0.08
+    refine_radius_seconds: 0.08
+    refractory_scale: 1.5
+  ibi:
+    min_ibi_s: 0.33
+    max_ibi_s: 1.5
+    local_median_radius: 2
+    max_deviation_ratio: 0.30
+    min_clean_ibi: 3
+  matching:
+    tolerance_seconds: 0.15
+
+output:
+  save_csv: true
+  output_dir: outputs

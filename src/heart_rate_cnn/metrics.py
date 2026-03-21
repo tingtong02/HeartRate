@@ -77,3 +77,76 @@ def summarize_method_metrics(
             )
         )
     return pd.DataFrame(rows)
+
+
+def compute_precision_recall_f1(tp: int, fp: int, fn: int) -> dict[str, float]:
+    precision = float(tp / (tp + fp)) if (tp + fp) > 0 else math.nan
+    recall = float(tp / (tp + fn)) if (tp + fn) > 0 else math.nan
+    if math.isnan(precision) or math.isnan(recall) or (precision + recall) == 0:
+        f1 = math.nan
+    else:
+        f1 = float(2.0 * precision * recall / (precision + recall))
+    return {
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+    }
+
+
+def compute_ibi_error_metrics(ref_ibi_ms: np.ndarray, pred_ibi_ms: np.ndarray) -> dict[str, float]:
+    ref = np.asarray(ref_ibi_ms, dtype=float)
+    pred = np.asarray(pred_ibi_ms, dtype=float)
+    if ref.shape != pred.shape:
+        raise ValueError("Reference and predicted IBI arrays must have the same shape.")
+    if ref.size == 0:
+        return {
+            "ibi_mae_ms": math.nan,
+            "ibi_rmse_ms": math.nan,
+            "num_valid_ibi_pairs": 0.0,
+        }
+    error = pred - ref
+    return {
+        "ibi_mae_ms": float(np.mean(np.abs(error))),
+        "ibi_rmse_ms": float(np.sqrt(np.mean(error**2))),
+        "num_valid_ibi_pairs": float(ref.size),
+    }
+
+
+def summarize_feature_metrics(
+    frame: pd.DataFrame,
+    feature_names: list[str],
+    ref_prefix: str,
+    pred_prefix: str,
+) -> pd.DataFrame:
+    rows: list[dict[str, float | str]] = []
+    for feature_name in feature_names:
+        ref_col = f"{ref_prefix}{feature_name}"
+        pred_col = f"{pred_prefix}{feature_name}"
+        valid_mask = frame[ref_col].notna() & frame[pred_col].notna()
+        ref_values = frame.loc[valid_mask, ref_col].to_numpy(dtype=float)
+        pred_values = frame.loc[valid_mask, pred_col].to_numpy(dtype=float)
+        if ref_values.size == 0:
+            rows.append(
+                {
+                    "feature": feature_name,
+                    "mae": math.nan,
+                    "pearson_r": math.nan,
+                    "num_valid_windows": 0.0,
+                }
+            )
+            continue
+
+        mae = float(np.mean(np.abs(pred_values - ref_values)))
+        if ref_values.size < 2 or np.allclose(ref_values, ref_values[0]) or np.allclose(pred_values, pred_values[0]):
+            pearson_r = math.nan
+        else:
+            pearson_r = float(np.corrcoef(ref_values, pred_values)[0, 1])
+        rows.append(
+            {
+                "feature": feature_name,
+                "mae": mae,
+                "pearson_r": pearson_r,
+                "num_valid_windows": float(ref_values.size),
+            }
+        )
+    return pd.DataFrame(rows)

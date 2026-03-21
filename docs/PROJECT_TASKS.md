@@ -138,6 +138,11 @@ Goals:
 - Move from average HR to beat-level analysis
 - Extract reliable IBI sequences
 
+Current status:
+- Stage 2 first-round implementation is focused only on beat detection, IBI extraction/cleaning, and basic time-domain PRV/HRV feature evaluation
+- Stage 2 first-round results indicate mean / median IBI style outputs are more usable than variability features, so future Stage 2 enhancement should prioritize beat detection and IBI cleaning
+- Stage 3 and later stages have not started yet
+
 Algorithms:
 - Adaptive peak detection
 - Derivative-assisted beat localization
