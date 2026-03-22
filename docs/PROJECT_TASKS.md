@@ -111,7 +111,7 @@ Goals:
 
 Current status:
 - Stage 1 first-round baseline is implemented with enhanced preprocessing, an enhanced Welch frequency chain, a time-domain peak chain, and minimal rule-based fusion
-- Stage 2 and later stages have not started yet
+- Later stages have now also been implemented in narrower repository-specific forms; see the Stage 2 and Stage 3 sections below for current status
 
 Algorithms:
 - Detrending
@@ -170,13 +170,29 @@ Goals:
 - Make the system quality-aware and robust under motion/noise
 
 Current status:
-- Stage 3A window-level SQI / quality gating is implemented and validated
-- Stage 3B1 motion-aware strengthening and Stage 3B2 DWT denoising are implemented as exploratory comparison branches
-- Stage 3C1 minimum viable beat-level quality proxy is implemented and validated through the Stage 2 pipeline outputs
-- Stage 3C1.1 threshold / retention refinement is implemented as analysis-only operating-point comparison
-- `enhanced_beat_quality` remains the official baseline operating point for the current beat-quality branch
-- `enhanced_beat_quality_refined` is analysis-only and is not the new default threshold
-- Full Stage 3 remains incomplete: beat-level SQI closure, robust HR update policy, adaptive filtering, and other roadmap items below are still not fully implemented
+- Stage 3 is now practically complete for this repository's CPU-first implemented scope
+- Completed repository Stage 3 scope includes:
+  - Stage 3A window-level SQI / quality gating
+  - rule-based and ML-gated Stage 3 HR quality paths
+  - train-only threshold selection and operating-point refinement for the ML gate
+  - Stage 3C1 minimum viable beat-level quality proxy via Stage 2 outputs
+  - Stage 3C1.1 beat-quality threshold / retention analysis
+  - Stage 3C2 robust-HR policy prototype with local 8 s beat fallback and limited auditable hold behavior
+  - Stage 3C2.1 robust-HR policy operating-point refinement
+- Exploratory Stage 3 add-ons include:
+  - Stage 3B1 motion-aware strengthening
+  - Stage 3B2 DWT denoising comparison
+- Current default / analysis interpretation:
+  - `gated_stage3_ml_logreg` is the current accuracy-oriented default Stage 3 path
+  - `robust_stage3c2_policy` is the current robust-output prototype path
+  - `enhanced_beat_quality_refined` is analysis-only
+  - `robust_stage3c2_policy_refined` is analysis-only
+- Deferred Stage 3 roadmap items include:
+  - full beat-level SQI closure beyond the current minimum viable proxy
+  - SSA denoising
+  - adaptive filtering such as `NLMS` / `RLS`
+  - deep-learning denoising
+  - broader non-CPU-first Stage 3 extensions
 
 Algorithms:
 - Window-level SQI classifier

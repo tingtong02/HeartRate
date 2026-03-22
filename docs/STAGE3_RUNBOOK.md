@@ -1,8 +1,38 @@
 # Stage 3 Runbook
 
+## Closure Status
+
+Stage 3 is now **practically complete for this repository's CPU-first scope**.
+
+Final interpretation:
+
+- Completed Stage 3 core:
+  - window-level SQI / quality gating on the current 8 s Stage 1 windows
+  - ML gating with train-only threshold selection and operating-point refinement
+  - minimum viable beat-level quality proxy via Stage 2 outputs
+  - robust-HR policy prototype with local 8 s beat fallback and limited auditable `hold_previous`
+- Current accuracy-oriented default Stage 3 path:
+  - `gated_stage3_ml_logreg`
+- Current robust-output prototype path:
+  - `robust_stage3c2_policy`
+- Analysis-only outputs:
+  - `enhanced_beat_quality_refined`
+  - `robust_stage3c2_policy_refined`
+- Exploratory comparison branches:
+  - Stage 3B1 motion-aware strengthening
+  - Stage 3B2 DWT denoising comparison
+- Deferred / later-research Stage 3 items:
+  - full beat-level SQI closure
+  - SSA
+  - adaptive filtering such as `NLMS` / `RLS`
+  - deep-learning denoising
+  - broader non-CPU-first Stage 3 extensions
+
+This means Stage 3 can be treated as complete for this repository's implemented scope, while broader original roadmap ideas remain explicitly deferred.
+
 ## Scope
 
-Stage 3 currently covers a narrow, CPU-friendly quality-gating track for the existing Stage 1 HR pipeline.
+Stage 3 currently covers a narrow, CPU-friendly quality-aware HR track for the existing Stage 1 pipeline.
 
 This round includes:
 
@@ -17,6 +47,7 @@ This round includes:
 - a Stage 3B2 DWT-denoised comparison branch layered on top of the same Stage 3 enhanced evaluation flow
 - a validated minimum viable beat-level quality proxy branch through the Stage 2 enhanced outputs, with threshold / retention analysis retained in Stage 2 result tables
 - a narrow Stage 3C2 robust-HR policy branch that integrates Stage 3 window quality with local 8 s beat-derived fallback HR and a limited auditable hold action
+- a narrow Stage 3C2.1 operating-point refinement round for the same robust-HR policy, keeping the baseline policy unchanged and adding an analysis-only refined operating point
 
 This round does not include:
 
@@ -101,6 +132,7 @@ Enhancement round writes:
 - `outputs/{dataset}_stage3_enhanced_metrics.csv`
 - `outputs/{dataset}_stage3_enhanced_threshold_sweep.csv`
 - `outputs/{dataset}_stage3_enhanced_operating_points.csv`
+- `outputs/{dataset}_stage3_enhanced_policy_sweep.csv`
 
 These tables compare:
 
@@ -110,6 +142,7 @@ These tables compare:
 - motion-aware strengthened Stage 3 gating built on top of the same ML quality score
 - DWT-denoised ML gating built from the same Stage 1 window pipeline
 - a Stage 3C2 robust-HR policy path that adds local beat fallback and limited `hold_previous` behavior on top of the same enhanced evaluation flow
+- an analysis-only `robust_stage3c2_policy_refined` comparison row derived from a fixed train-only policy-profile sweep
 
 The threshold-analysis outputs stay strictly within Stage 3:
 
@@ -121,10 +154,12 @@ The threshold-analysis outputs stay strictly within Stage 3:
 
 For Stage 3C2 output interpretation:
 
-- `gated_stage3_ml_logreg` remains the direct Stage 3 ML-gated comparison path
-- `robust_stage3c2_policy` is an additive robust-output path, not a replacement for the other Stage 3 comparison rows
+- `gated_stage3_ml_logreg` is the current accuracy-oriented default Stage 3 path
+- `robust_stage3c2_policy` is the current robust-output prototype path, not a replacement for the accuracy-oriented default
+- `robust_stage3c2_policy_refined` is analysis-only and must not be interpreted as a new default deployment policy
 - local beat-derived fallback HR is computed directly on the current Stage 1 8 s window using the existing Stage 2 beat / IBI functions
 - `hold_previous` is intentionally limited, resets at subject boundaries, and should be treated as a short auditable recovery action rather than smoothing
+- `*_stage3_enhanced_policy_sweep.csv` is the source of record for the Stage 3C2.1 error / coverage / jump tradeoff study
 
 ## Notes
 
@@ -135,6 +170,7 @@ For Stage 3C2 output interpretation:
 - Stage 3B1 does not add denoising, adaptive filtering, beat-level SQI, or a new model family; it only strengthens motion/noise-related reasoning within the existing Stage 3A framework.
 - Stage 3B2 adds a single DWT denoising branch using `PyWavelets`; it does not add SSA, adaptive filtering, beat-level SQI, or deep-learning denoising.
 - Test-set threshold rows are for reporting only and are not used to choose the deployed threshold.
-- Beat-level quality closure is still partial: Stage 3 currently includes a minimum viable, validated beat-level quality proxy via Stage 2 outputs, but not full beat-level SQI closure.
+- Beat-level quality closure is still partial: Stage 3 includes a minimum viable, validated beat-level quality proxy via Stage 2 outputs, but not full beat-level SQI closure.
 - For the beat-quality branch, `enhanced_beat_quality` is the official baseline operating point and `enhanced_beat_quality_refined` is analysis-only.
 - Stage 3C2 does not use 60 s Stage 2 aggregation as its primary fallback path in this first round.
+- Stage 3 should now be treated as practically complete for this repository's implemented scope, not as full completion of every broad original Stage 3 roadmap idea.

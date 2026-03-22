@@ -23,14 +23,17 @@ from heart_rate_cnn.stage3_quality import (
     apply_ml_quality_decision,
     apply_motion_aware_quality_decision,
     apply_rule_based_quality_decision,
+    build_robust_hr_policy_profiles,
     build_refined_threshold_grid,
     build_quality_target,
     compute_local_beat_fallback_hr,
     compute_binary_classification_summary,
+    evaluate_robust_hr_policy_profile,
     extract_quality_features,
     evaluate_ml_threshold_grid,
     fit_quality_logistic_regression,
     predict_quality_logistic_regression,
+    select_refined_robust_hr_policy_profile,
     summarize_robust_hr_policy_behavior,
     summarize_operating_point_status,
     summarize_threshold_selection,
@@ -166,6 +169,7 @@ def _summarize_hr_method(
     valid_col: str,
     method: str,
     ungated_valid_count: int,
+    total_window_count: int,
     selected_threshold: float | None = None,
 ) -> dict[str, float | str]:
     valid_mask = frame["ref_hr_bpm"].notna() & frame[pred_col].notna() & frame[valid_col].astype(bool)
@@ -175,6 +179,7 @@ def _summarize_hr_method(
         valid_frame[pred_col].to_numpy(dtype=float),
     )
     retention_ratio = float(valid_frame.shape[0] / ungated_valid_count) if ungated_valid_count > 0 else math.nan
+    output_fraction = float(valid_frame.shape[0] / total_window_count) if total_window_count > 0 else math.nan
     return {
         "task": "hr_comparison",
         "method": method,
@@ -189,6 +194,7 @@ def _summarize_hr_method(
         "pearson_r": metrics["pearson_r"],
         "num_valid_windows": metrics["num_valid_windows"],
         "retention_ratio": retention_ratio,
+        "output_fraction": output_fraction,
         "selected_threshold": selected_threshold if selected_threshold is not None else math.nan,
     }
 
@@ -219,8 +225,34 @@ def _summarize_quality_method(
         "pearson_r": math.nan,
         "num_valid_windows": math.nan,
         "retention_ratio": math.nan,
+        "output_fraction": math.nan,
         "selected_threshold": selected_threshold if selected_threshold is not None else math.nan,
     }
+
+
+def _apply_ml_decisions_to_frame(frame: pd.DataFrame, *, threshold: float) -> pd.DataFrame:
+    decisions = [
+        apply_ml_quality_decision(
+            signal_quality_score=float(score),
+            threshold=threshold,
+            window_is_valid=bool(row["window_is_valid"]),
+            freq_is_valid=bool(row["freq_is_valid"]),
+            motion_flag=bool(row["motion_flag"]),
+        )
+        for score, row in zip(frame["ml_signal_quality_score"].tolist(), frame.to_dict(orient="records"))
+    ]
+    updated = frame.copy()
+    updated["ml_signal_quality_label"] = [row["signal_quality_label"] for row in decisions]
+    updated["ml_validity_flag"] = [row["validity_flag"] for row in decisions]
+    updated["ml_gated_pred_hr_bpm"] = [
+        float(pred_hr) if bool(validity_flag) else math.nan
+        for pred_hr, validity_flag in zip(updated["ungated_pred_hr_bpm"].tolist(), updated["ml_validity_flag"].tolist())
+    ]
+    updated["ml_gated_is_valid"] = [
+        bool(validity_flag and ungated_valid)
+        for validity_flag, ungated_valid in zip(updated["ml_validity_flag"].tolist(), updated["ungated_is_valid"].tolist())
+    ]
+    return updated
 
 
 def _ensure_window_alignment(reference_frame: pd.DataFrame, branch_frame: pd.DataFrame) -> None:
@@ -476,27 +508,8 @@ def main() -> None:
         ignore_index=True,
         sort=False,
     )
-
-    ml_decisions = [
-        apply_ml_quality_decision(
-            signal_quality_score=float(score),
-            threshold=selected_threshold,
-            window_is_valid=bool(row["window_is_valid"]),
-            freq_is_valid=bool(row["freq_is_valid"]),
-            motion_flag=bool(row["motion_flag"]),
-        )
-        for score, row in zip(eval_frame["ml_signal_quality_score"].tolist(), eval_frame.to_dict(orient="records"))
-    ]
-    eval_frame["ml_signal_quality_label"] = [row["signal_quality_label"] for row in ml_decisions]
-    eval_frame["ml_validity_flag"] = [row["validity_flag"] for row in ml_decisions]
-    eval_frame["ml_gated_pred_hr_bpm"] = [
-        float(pred_hr) if bool(validity_flag) else math.nan
-        for pred_hr, validity_flag in zip(eval_frame["ungated_pred_hr_bpm"].tolist(), eval_frame["ml_validity_flag"].tolist())
-    ]
-    eval_frame["ml_gated_is_valid"] = [
-        bool(validity_flag and ungated_valid)
-        for validity_flag, ungated_valid in zip(eval_frame["ml_validity_flag"].tolist(), eval_frame["ungated_is_valid"].tolist())
-    ]
+    train_frame = _apply_ml_decisions_to_frame(train_frame, threshold=selected_threshold)
+    eval_frame = _apply_ml_decisions_to_frame(eval_frame, threshold=selected_threshold)
 
     motion_refined_decisions = [
         apply_motion_aware_quality_decision(
@@ -535,12 +548,116 @@ def main() -> None:
         )
     ]
 
+    robust_policy_cfg = stage3_cfg.get("robust_hr_policy", {})
     robust_policy_frame = apply_robust_hr_policy_sequence(
         eval_frame,
-        config=stage3_cfg.get("robust_hr_policy", {}),
+        config=robust_policy_cfg,
     )
     for column in robust_policy_frame.columns:
         eval_frame[column] = robust_policy_frame[column].tolist()
+
+    train_ungated_valid_count = int(train_frame["ungated_is_valid"].fillna(False).astype(bool).sum())
+    ungated_valid_count = int(eval_frame["ungated_is_valid"].fillna(False).astype(bool).sum())
+    eval_window_count = int(eval_frame.shape[0])
+    train_window_count = int(train_frame.shape[0])
+
+    policy_refine_cfg = stage3_cfg.get("robust_hr_policy_refine", {})
+    policy_refine_enabled = bool(policy_refine_cfg.get("enabled", True))
+    policy_sweep_frame = pd.DataFrame()
+    refined_policy_selection_row: dict[str, float | str | bool] | None = None
+    refined_profile_name = "baseline"
+    refined_train_frame = train_frame.copy()
+    refined_eval_frame = eval_frame.copy()
+    if policy_refine_enabled:
+        policy_profiles = build_robust_hr_policy_profiles(
+            base_config=robust_policy_cfg,
+            refine_config=policy_refine_cfg,
+        )
+        train_policy_rows: list[dict[str, float | str | bool]] = []
+        eval_policy_rows: list[dict[str, float | str | bool]] = []
+        eval_policy_frames: dict[str, pd.DataFrame] = {}
+
+        for profile_name, profile_cfg in policy_profiles.items():
+            train_profile_frame, train_profile_row = evaluate_robust_hr_policy_profile(
+                train_frame,
+                config=profile_cfg,
+                profile_name=profile_name,
+                split_name="train",
+                ungated_valid_count=train_ungated_valid_count,
+                method="robust_stage3c2_policy",
+            )
+            eval_profile_frame, eval_profile_row = evaluate_robust_hr_policy_profile(
+                eval_frame,
+                config=profile_cfg,
+                profile_name=profile_name,
+                split_name="eval",
+                ungated_valid_count=ungated_valid_count,
+                method="robust_stage3c2_policy",
+            )
+            train_policy_rows.append(train_profile_row)
+            eval_policy_rows.append(eval_profile_row)
+            eval_policy_frames[profile_name] = eval_profile_frame
+            if profile_name == "baseline":
+                refined_train_frame = train_profile_frame
+
+        train_policy_sweep = pd.DataFrame(train_policy_rows)
+        train_ml_output_fraction = float(np.mean(train_frame["ml_gated_is_valid"].astype(bool))) if train_window_count > 0 else math.nan
+        train_policy_sweep, policy_selection = select_refined_robust_hr_policy_profile(
+            train_policy_sweep,
+            baseline_profile_name="baseline",
+            selection_metric=str(policy_refine_cfg.get("selection_metric", "rmse")),
+            min_output_fraction=float(train_ml_output_fraction * float(policy_refine_cfg.get("min_output_fraction_vs_ml", 1.0))),
+            max_hold_previous_fraction=float(policy_refine_cfg.get("max_hold_previous_fraction", 0.02)),
+            max_jump_increase_bpm=float(policy_refine_cfg.get("max_jump_increase_bpm", 1.0)),
+        )
+        refined_profile_name = str(policy_selection["selected_profile_name"])
+
+        eval_policy_sweep = pd.DataFrame(eval_policy_rows)
+        eval_policy_sweep["is_baseline_profile"] = eval_policy_sweep["profile_name"] == "baseline"
+        eval_policy_sweep["is_refined_selected"] = eval_policy_sweep["profile_name"] == refined_profile_name
+        train_policy_sweep["is_baseline_profile"] = train_policy_sweep["profile_name"] == "baseline"
+
+        for flag_col in ("meets_output_fraction", "meets_hold_previous_fraction", "meets_jump_guard", "is_feasible"):
+            if flag_col not in eval_policy_sweep.columns:
+                eval_policy_sweep[flag_col] = math.nan
+
+        policy_sweep_frame = pd.concat([train_policy_sweep, eval_policy_sweep], ignore_index=True, sort=False)
+        refined_eval_frame = eval_policy_frames[refined_profile_name].copy()
+
+        refined_columns = {
+            "robust_hr_bpm": "robust_refined_hr_bpm",
+            "robust_hr_is_valid": "robust_refined_hr_is_valid",
+            "robust_hr_source": "robust_refined_hr_source",
+            "robust_hr_action": "robust_refined_hr_action",
+            "previous_reliable_hr_bpm": "robust_refined_previous_reliable_hr_bpm",
+            "hold_applied": "robust_refined_hold_applied",
+            "hold_age_windows": "robust_refined_hold_age_windows",
+            "hr_jump_bpm_from_previous": "robust_refined_hr_jump_bpm_from_previous",
+            "policy_reason_code": "robust_refined_policy_reason_code",
+            "subject_boundary_reset": "robust_refined_subject_boundary_reset",
+        }
+        for source_col, target_col in refined_columns.items():
+            eval_frame[target_col] = refined_eval_frame[source_col].tolist()
+        eval_frame["robust_refined_selected_profile_name"] = refined_profile_name
+        eval_frame["robust_refined_analysis_only"] = True
+
+        refined_policy_selection_row = {
+            "task": "policy_operating_point_selection",
+            "method": "robust_stage3c2_policy_refined",
+            "baseline_profile_name": str(policy_selection["baseline_profile_name"]),
+            "selected_profile_name": refined_profile_name,
+            "selection_metric": str(policy_selection["selection_metric"]),
+            "selection_constraint": (
+                f"min_output_fraction>={float(policy_selection['min_output_fraction']):.4f};"
+                f"max_hold_previous_fraction<={float(policy_selection['max_hold_previous_fraction']):.4f};"
+                f"max_avg_abs_jump_bpm<={float(policy_selection['max_allowed_avg_abs_jump_bpm']):.4f}"
+            ),
+            "train_only_selection": bool(policy_selection["train_only_selection"]),
+            "analysis_only": bool(policy_selection["analysis_only"]),
+            "baseline_is_best_feasible": bool(policy_selection["baseline_is_best_feasible"]),
+            "no_feasible_profiles": bool(policy_selection["no_feasible_profiles"]),
+            "output_fraction": math.nan,
+        }
 
     rule_test_mask = (
         eval_frame["ref_hr_bpm"].notna()
@@ -715,7 +832,6 @@ def main() -> None:
     ]
     eval_selected_summary = eval_selected_row.iloc[0].to_dict() if not eval_selected_row.empty else {}
 
-    ungated_valid_count = int(eval_frame["ungated_is_valid"].fillna(False).astype(bool).sum())
     dwt_quality_frame = None
     if "dwt_quality_target_label" in eval_frame.columns and "dwt_ml_signal_quality_label" in eval_frame.columns:
         dwt_quality_frame = eval_frame.copy()
@@ -740,13 +856,17 @@ def main() -> None:
             method="stage3_dwt_ml",
             selected_threshold=dwt_selected_threshold if np.isfinite(dwt_selected_threshold) else None,
         ) if "dwt_ml_signal_quality_label" in eval_frame.columns else None,
-        summarize_robust_hr_policy_behavior(eval_frame),
+        summarize_robust_hr_policy_behavior(eval_frame, method="robust_stage3c2_policy"),
+        summarize_robust_hr_policy_behavior(refined_eval_frame, method="robust_stage3c2_policy_refined")
+        if policy_refine_enabled and not refined_eval_frame.empty
+        else None,
         _summarize_hr_method(
             eval_frame,
             pred_col="ungated_pred_hr_bpm",
             valid_col="ungated_is_valid",
             method="ungated_stage1_frequency",
             ungated_valid_count=ungated_valid_count,
+            total_window_count=eval_window_count,
         ),
         _summarize_hr_method(
             eval_frame,
@@ -754,6 +874,7 @@ def main() -> None:
             valid_col="rule_gated_is_valid",
             method="gated_stage3_rule",
             ungated_valid_count=ungated_valid_count,
+            total_window_count=eval_window_count,
         ),
         _summarize_hr_method(
             eval_frame,
@@ -761,6 +882,7 @@ def main() -> None:
             valid_col="ml_gated_is_valid",
             method="gated_stage3_ml_logreg",
             ungated_valid_count=ungated_valid_count,
+            total_window_count=eval_window_count,
             selected_threshold=selected_threshold,
         ),
         _summarize_hr_method(
@@ -769,6 +891,7 @@ def main() -> None:
             valid_col="motion_refined_gated_is_valid",
             method="gated_stage3_motion_refined",
             ungated_valid_count=ungated_valid_count,
+            total_window_count=eval_window_count,
             selected_threshold=motion_refined_threshold,
         ),
         _summarize_hr_method(
@@ -777,6 +900,7 @@ def main() -> None:
             valid_col="dwt_ml_gated_is_valid",
             method="gated_stage3_dwt_ml",
             ungated_valid_count=ungated_valid_count,
+            total_window_count=eval_window_count,
             selected_threshold=dwt_selected_threshold if np.isfinite(dwt_selected_threshold) else None,
         ) if "dwt_ml_gated_pred_hr_bpm" in eval_frame.columns else None,
         _summarize_hr_method(
@@ -785,7 +909,17 @@ def main() -> None:
             valid_col="robust_hr_is_valid",
             method="robust_stage3c2_policy",
             ungated_valid_count=ungated_valid_count,
+            total_window_count=eval_window_count,
         ),
+        _summarize_hr_method(
+            refined_eval_frame,
+            pred_col="robust_hr_bpm",
+            valid_col="robust_hr_is_valid",
+            method="robust_stage3c2_policy_refined",
+            ungated_valid_count=ungated_valid_count,
+            total_window_count=eval_window_count,
+        ) if policy_refine_enabled else None,
+        refined_policy_selection_row if policy_refine_enabled else None,
     ]
     metrics_frame = pd.DataFrame([row for row in metrics_rows if row is not None])
 
@@ -871,7 +1005,40 @@ def main() -> None:
             value = policy_row.get(key, math.nan)
             print(f"  {key}: {value:.4f}" if isinstance(value, float) and not math.isnan(value) else f"  {key}: {value}")
 
-    for method in ("ungated_stage1_frequency", "gated_stage3_rule", "gated_stage3_ml_logreg", "gated_stage3_motion_refined", "gated_stage3_dwt_ml", "robust_stage3c2_policy"):
+    if "robust_stage3c2_policy_refined" in metrics_frame["method"].tolist():
+        refined_policy_row = metrics_frame.loc[
+            (metrics_frame["method"] == "robust_stage3c2_policy_refined") & (metrics_frame["task"] == "policy_summary")
+        ].iloc[0].to_dict()
+        print("policy summary: robust_stage3c2_policy_refined (analysis-only)")
+        print(f"  selected_profile_name: {refined_profile_name}")
+        for key in (
+            "output_fraction",
+            "frequency_fraction",
+            "beat_fallback_fraction",
+            "hold_previous_fraction",
+            "reject_fraction",
+            "avg_abs_jump_bpm",
+            "hold_count",
+            "fallback_insufficient_count",
+        ):
+            value = refined_policy_row.get(key, math.nan)
+            print(f"  {key}: {value:.4f}" if isinstance(value, float) and not math.isnan(value) else f"  {key}: {value}")
+
+    selection_subset = metrics_frame.loc[metrics_frame["task"] == "policy_operating_point_selection"]
+    if not selection_subset.empty:
+        selection_row = selection_subset.iloc[0].to_dict()
+        print("policy operating-point selection: robust_stage3c2_policy_refined (analysis-only)")
+        for key in (
+            "baseline_profile_name",
+            "selected_profile_name",
+            "selection_metric",
+            "selection_constraint",
+            "baseline_is_best_feasible",
+            "no_feasible_profiles",
+        ):
+            print(f"  {key}: {selection_row.get(key)}")
+
+    for method in ("ungated_stage1_frequency", "gated_stage3_rule", "gated_stage3_ml_logreg", "gated_stage3_motion_refined", "gated_stage3_dwt_ml", "robust_stage3c2_policy", "robust_stage3c2_policy_refined"):
         method_subset = metrics_frame.loc[
             (metrics_frame["method"] == method) & (metrics_frame["task"] == "hr_comparison")
         ]
@@ -879,7 +1046,7 @@ def main() -> None:
             continue
         row = method_subset.iloc[0].to_dict()
         print(f"hr method: {method}")
-        for key in ("mae", "rmse", "mape", "pearson_r", "num_valid_windows", "retention_ratio"):
+        for key in ("mae", "rmse", "mape", "pearson_r", "num_valid_windows", "retention_ratio", "output_fraction"):
             value = row[key]
             print(f"  {key}: {value:.4f}" if isinstance(value, float) and not math.isnan(value) else f"  {key}: {value}")
 
@@ -890,16 +1057,21 @@ def main() -> None:
         metrics_path = output_dir / f"{dataset_cfg['name']}_stage3_enhanced_metrics.csv"
         threshold_sweep_path = output_dir / f"{dataset_cfg['name']}_stage3_enhanced_threshold_sweep.csv"
         operating_points_path = output_dir / f"{dataset_cfg['name']}_stage3_enhanced_operating_points.csv"
+        policy_sweep_path = output_dir / f"{dataset_cfg['name']}_stage3_enhanced_policy_sweep.csv"
         eval_frame.to_csv(predictions_path, index=False)
         metrics_frame.to_csv(metrics_path, index=False)
         if bool(stage3_cfg["ml"].get("save_threshold_analysis", True)):
             threshold_sweep_frame.to_csv(threshold_sweep_path, index=False)
             operating_points_frame.to_csv(operating_points_path, index=False)
+        if not policy_sweep_frame.empty:
+            policy_sweep_frame.to_csv(policy_sweep_path, index=False)
         print(f"Saved predictions to: {predictions_path}")
         print(f"Saved metrics to: {metrics_path}")
         if bool(stage3_cfg["ml"].get("save_threshold_analysis", True)):
             print(f"Saved threshold sweep to: {threshold_sweep_path}")
             print(f"Saved operating points to: {operating_points_path}")
+        if not policy_sweep_frame.empty:
+            print(f"Saved policy sweep to: {policy_sweep_path}")
 
 
 if __name__ == "__main__":

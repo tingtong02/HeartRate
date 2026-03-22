@@ -85,6 +85,7 @@ For the beat-quality branch:
 - `outputs/{dataset}_stage2_beat_quality_sweep.csv` is the threshold / retention tradeoff analysis table
 - `enhanced_beat_quality` is the official baseline operating point at the configured threshold
 - `enhanced_beat_quality_refined` is analysis-only and must not be treated as the new default threshold
+- this beat-quality branch now serves as the minimum viable Stage 3 beat-level quality layer in the repository's practically complete Stage 3 scope
 
 ## Real Enhancement-Round Results
 
@@ -131,3 +132,4 @@ Current interpretation:
 - `enhanced_beat_quality` remains the official baseline operating point at the configured threshold `0.55`.
 - `enhanced_beat_quality_refined` is analysis-only and exists to make the threshold/retention tradeoff explicit; it is not a silently adopted new default.
 - Current conclusion: the score is reproducible and decision-useful, the default threshold is conservative, and the refined operating point is useful for analysis but is not adopted as the new default.
+- For final Stage 3 interpretation, this branch should be read as a validated minimum viable beat-level quality component, not as full beat-level SQI closure.

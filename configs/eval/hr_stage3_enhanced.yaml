@@ -133,6 +133,46 @@ stage3:
     hold_subject_boundary_reset: true
     hold_quality_floor: 0.45
     hold_jump_guard_bpm: 12.0
+  robust_hr_policy_refine:
+    enabled: true
+    selection_metric: rmse
+    max_hold_previous_fraction: 0.02
+    max_jump_increase_bpm: 1.0
+    min_output_fraction_vs_ml: 1.0
+    profiles:
+      baseline: {}
+      coverage_light:
+        direct_quality_threshold: 0.52
+        direct_jump_guard_bpm: 22.0
+        fallback_min_beats: 4
+        fallback_min_clean_ibi: 3
+        fallback_min_quality_kept_ratio: 0.30
+        hold_quality_floor: 0.40
+        hold_jump_guard_bpm: 14.0
+      coverage_relaxed:
+        direct_quality_threshold: 0.48
+        direct_jump_guard_bpm: 24.0
+        fallback_min_beats: 3
+        fallback_min_clean_ibi: 2
+        fallback_min_quality_kept_ratio: 0.25
+        hold_quality_floor: 0.38
+        hold_jump_guard_bpm: 16.0
+      strict_light:
+        direct_quality_threshold: 0.58
+        direct_jump_guard_bpm: 18.0
+        fallback_min_beats: 5
+        fallback_min_clean_ibi: 3
+        fallback_min_quality_kept_ratio: 0.40
+        hold_quality_floor: 0.50
+        hold_jump_guard_bpm: 10.0
+      strict_guarded:
+        direct_quality_threshold: 0.62
+        direct_jump_guard_bpm: 16.0
+        fallback_min_beats: 5
+        fallback_min_clean_ibi: 4
+        fallback_min_quality_kept_ratio: 0.45
+        hold_quality_floor: 0.55
+        hold_jump_guard_bpm: 8.0
 
 output:
   save_csv: true

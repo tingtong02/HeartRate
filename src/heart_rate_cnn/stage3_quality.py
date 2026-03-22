@@ -869,11 +869,16 @@ def apply_robust_hr_policy_sequence(
     return decision_frame
 
 
-def summarize_robust_hr_policy_behavior(frame: pd.DataFrame) -> dict[str, float | str]:
+def summarize_robust_hr_policy_behavior(
+    frame: pd.DataFrame,
+    *,
+    method: str = "robust_stage3c2_policy",
+) -> dict[str, float | str]:
     if frame.empty:
         return {
             "task": "policy_summary",
-            "method": "robust_stage3c2_policy",
+            "method": method,
+            "output_fraction": math.nan,
             "frequency_fraction": math.nan,
             "beat_fallback_fraction": math.nan,
             "hold_previous_fraction": math.nan,
@@ -888,7 +893,8 @@ def summarize_robust_hr_policy_behavior(frame: pd.DataFrame) -> dict[str, float 
     jump_series = frame.loc[frame["robust_hr_is_valid"].astype(bool), "hr_jump_bpm_from_previous"].dropna()
     return {
         "task": "policy_summary",
-        "method": "robust_stage3c2_policy",
+        "method": method,
+        "output_fraction": float(np.mean(frame["robust_hr_is_valid"].astype(bool))),
         "frequency_fraction": float(np.mean(frame["robust_hr_source"] == "frequency")),
         "beat_fallback_fraction": float(np.mean(frame["robust_hr_source"] == "beat_fallback")),
         "hold_previous_fraction": float(np.mean(frame["robust_hr_source"] == "hold_previous")),
@@ -898,6 +904,152 @@ def summarize_robust_hr_policy_behavior(frame: pd.DataFrame) -> dict[str, float 
         "subject_boundary_reset_count": float(np.sum(frame["subject_boundary_reset"].astype(bool))),
         "fallback_insufficient_count": float(np.sum(~frame["beat_fallback_available"].astype(bool))),
         "num_eval_windows": float(total),
+    }
+
+
+ROBUST_POLICY_SWEEP_KEYS: tuple[str, ...] = (
+    "direct_quality_threshold",
+    "direct_jump_guard_bpm",
+    "fallback_min_beats",
+    "fallback_min_clean_ibi",
+    "fallback_min_quality_kept_ratio",
+    "hold_quality_floor",
+    "hold_jump_guard_bpm",
+)
+
+
+def build_robust_hr_policy_profiles(
+    *,
+    base_config: dict[str, Any] | None = None,
+    refine_config: dict[str, Any] | None = None,
+) -> dict[str, dict[str, Any]]:
+    base_cfg = dict(base_config or {})
+    refine_cfg = refine_config or {}
+    raw_profiles = dict(refine_cfg.get("profiles", {}))
+    if "baseline" not in raw_profiles:
+        raw_profiles = {"baseline": {}, **raw_profiles}
+
+    profiles: dict[str, dict[str, Any]] = {}
+    for profile_name, overrides in raw_profiles.items():
+        merged = dict(base_cfg)
+        merged.update(dict(overrides or {}))
+        profiles[str(profile_name)] = merged
+    return profiles
+
+
+def evaluate_robust_hr_policy_profile(
+    frame: pd.DataFrame,
+    *,
+    config: dict[str, Any] | None,
+    profile_name: str,
+    split_name: str,
+    ungated_valid_count: int,
+    method: str = "robust_stage3c2_policy",
+) -> tuple[pd.DataFrame, dict[str, float | str | bool]]:
+    decisions = apply_robust_hr_policy_sequence(frame, config=config)
+    enriched = frame.copy()
+    for column in decisions.columns:
+        enriched[column] = decisions[column].tolist()
+
+    valid_mask = (
+        enriched["ref_hr_bpm"].notna()
+        & enriched["robust_hr_bpm"].notna()
+        & enriched["robust_hr_is_valid"].astype(bool)
+    )
+    valid_frame = enriched.loc[valid_mask]
+    hr_metrics = compute_hr_metrics(
+        valid_frame["ref_hr_bpm"].to_numpy(dtype=float),
+        valid_frame["robust_hr_bpm"].to_numpy(dtype=float),
+    )
+    total_windows = max(enriched.shape[0], 1)
+    output_fraction = float(hr_metrics["num_valid_windows"] / total_windows)
+    retention_ratio = float(hr_metrics["num_valid_windows"] / ungated_valid_count) if ungated_valid_count > 0 else math.nan
+    behavior = summarize_robust_hr_policy_behavior(enriched, method=method)
+
+    row: dict[str, float | str | bool] = {
+        "profile_name": profile_name,
+        "split": split_name,
+        "task": "policy_sweep",
+        "method": method,
+        "num_eval_windows": float(total_windows),
+        "num_valid_windows": hr_metrics["num_valid_windows"],
+        "output_fraction": output_fraction,
+        "retention_ratio": retention_ratio,
+        "mae": hr_metrics["mae"],
+        "rmse": hr_metrics["rmse"],
+        "mape": hr_metrics["mape"],
+        "pearson_r": hr_metrics["pearson_r"],
+        "frequency_fraction": float(behavior["frequency_fraction"]),
+        "beat_fallback_fraction": float(behavior["beat_fallback_fraction"]),
+        "hold_previous_fraction": float(behavior["hold_previous_fraction"]),
+        "reject_fraction": float(behavior["reject_fraction"]),
+        "avg_abs_jump_bpm": float(behavior["avg_abs_jump_bpm"]) if not math.isnan(float(behavior["avg_abs_jump_bpm"])) else math.nan,
+        "hold_count": float(behavior["hold_count"]),
+        "fallback_insufficient_count": float(behavior["fallback_insufficient_count"]),
+    }
+    cfg = config or {}
+    for key in ROBUST_POLICY_SWEEP_KEYS:
+        value = cfg.get(key, math.nan)
+        if isinstance(value, bool):
+            row[key] = bool(value)
+        else:
+            row[key] = float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else value
+    return enriched, row
+
+
+def select_refined_robust_hr_policy_profile(
+    train_sweep_frame: pd.DataFrame,
+    *,
+    baseline_profile_name: str = "baseline",
+    selection_metric: str = "rmse",
+    min_output_fraction: float,
+    max_hold_previous_fraction: float,
+    max_jump_increase_bpm: float,
+) -> tuple[pd.DataFrame, dict[str, float | str | bool]]:
+    if train_sweep_frame.empty:
+        raise ValueError("select_refined_robust_hr_policy_profile requires a non-empty sweep frame.")
+
+    annotated = train_sweep_frame.copy()
+    baseline_rows = annotated.loc[annotated["profile_name"] == baseline_profile_name].copy()
+    if baseline_rows.empty:
+        raise ValueError(f"Baseline profile '{baseline_profile_name}' not found in policy sweep.")
+    baseline_row = baseline_rows.iloc[0]
+    baseline_jump = float(baseline_row["avg_abs_jump_bpm"]) if not math.isnan(float(baseline_row["avg_abs_jump_bpm"])) else math.inf
+    allowed_jump = baseline_jump + max_jump_increase_bpm if math.isfinite(baseline_jump) else math.inf
+
+    annotated["meets_output_fraction"] = annotated["output_fraction"].to_numpy(dtype=float) >= float(min_output_fraction)
+    annotated["meets_hold_previous_fraction"] = (
+        annotated["hold_previous_fraction"].to_numpy(dtype=float) <= float(max_hold_previous_fraction)
+    )
+    annotated["meets_jump_guard"] = annotated["avg_abs_jump_bpm"].to_numpy(dtype=float) <= float(allowed_jump)
+    annotated["is_feasible"] = (
+        annotated["meets_output_fraction"].astype(bool)
+        & annotated["meets_hold_previous_fraction"].astype(bool)
+        & annotated["meets_jump_guard"].astype(bool)
+    )
+
+    feasible = annotated.loc[annotated["is_feasible"].astype(bool)].copy()
+    no_feasible_profiles = feasible.empty
+    candidate_frame = feasible if not feasible.empty else annotated.copy()
+    ranked = candidate_frame.sort_values(
+        by=[selection_metric, "output_fraction", "reject_fraction", "profile_name"],
+        ascending=[True, False, True, True],
+    ).reset_index(drop=True)
+    selected_profile_name = str(ranked.iloc[0]["profile_name"])
+    annotated["is_refined_selected"] = annotated["profile_name"] == selected_profile_name
+
+    return annotated, {
+        "baseline_profile_name": baseline_profile_name,
+        "selected_profile_name": selected_profile_name,
+        "selection_metric": selection_metric,
+        "min_output_fraction": float(min_output_fraction),
+        "max_hold_previous_fraction": float(max_hold_previous_fraction),
+        "max_allowed_avg_abs_jump_bpm": float(allowed_jump) if math.isfinite(allowed_jump) else math.nan,
+        "baseline_avg_abs_jump_bpm": float(baseline_jump) if math.isfinite(baseline_jump) else math.nan,
+        "no_feasible_profiles": bool(no_feasible_profiles),
+        "baseline_is_best_feasible": bool(selected_profile_name == baseline_profile_name),
+        "analysis_only": True,
+        "train_only_selection": True,
     }
 
 

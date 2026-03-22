@@ -8,6 +8,7 @@ from heart_rate_cnn.stage3_quality import (
     apply_rule_based_quality_decision,
     apply_ml_quality_decision,
     apply_motion_aware_quality_decision,
+    build_robust_hr_policy_profiles,
     build_refined_threshold_grid,
     build_ml_feature_matrix,
     build_ml_feature_row,
@@ -15,11 +16,13 @@ from heart_rate_cnn.stage3_quality import (
     compute_local_beat_fallback_hr,
     compute_binary_classification_summary,
     compute_motion_summary,
+    evaluate_robust_hr_policy_profile,
     evaluate_ml_threshold_grid,
     extract_quality_features,
     fit_quality_logistic_regression,
     predict_quality_logistic_regression,
     score_motion_awareness,
+    select_refined_robust_hr_policy_profile,
     select_best_ml_threshold,
     summarize_robust_hr_policy_behavior,
     summarize_operating_point_status,
@@ -503,10 +506,97 @@ def test_summarize_robust_hr_policy_behavior_reports_action_mix() -> None:
         }
     )
     summary = summarize_robust_hr_policy_behavior(frame)
+    assert np.isclose(summary["output_fraction"], 0.75)
     assert np.isclose(summary["frequency_fraction"], 0.25)
     assert np.isclose(summary["beat_fallback_fraction"], 0.25)
     assert np.isclose(summary["hold_previous_fraction"], 0.25)
     assert np.isclose(summary["reject_fraction"], 0.25)
+
+
+def test_build_robust_hr_policy_profiles_keeps_baseline_and_applies_overrides() -> None:
+    profiles = build_robust_hr_policy_profiles(
+        base_config={"direct_quality_threshold": 0.55, "max_hold_windows": 1},
+        refine_config={"profiles": {"baseline": {}, "coverage_light": {"direct_quality_threshold": 0.50}}},
+    )
+    assert np.isclose(float(profiles["baseline"]["direct_quality_threshold"]), 0.55)
+    assert np.isclose(float(profiles["coverage_light"]["direct_quality_threshold"]), 0.50)
+    assert int(profiles["coverage_light"]["max_hold_windows"]) == 1
+
+
+def test_evaluate_robust_hr_policy_profile_reports_output_fraction() -> None:
+    frame = pd.DataFrame(
+        [
+            {
+                "subject_id": "S1",
+                "window_index": 0,
+                "start_time_s": 0.0,
+                "ref_hr_bpm": 72.0,
+                "ungated_pred_hr_bpm": 72.0,
+                "ungated_is_valid": True,
+                "ml_validity_flag": True,
+                "ml_signal_quality_score": 0.80,
+                "beat_fallback_available": False,
+                "beat_fallback_hr_bpm": np.nan,
+            },
+            {
+                "subject_id": "S1",
+                "window_index": 1,
+                "start_time_s": 2.0,
+                "ref_hr_bpm": 72.0,
+                "ungated_pred_hr_bpm": np.nan,
+                "ungated_is_valid": False,
+                "ml_validity_flag": False,
+                "ml_signal_quality_score": 0.20,
+                "beat_fallback_available": False,
+                "beat_fallback_hr_bpm": np.nan,
+            },
+        ]
+    )
+    _, row = evaluate_robust_hr_policy_profile(
+        frame,
+        config={"direct_quality_threshold": 0.55, "hold_enabled": False},
+        profile_name="baseline",
+        split_name="train",
+        ungated_valid_count=1,
+    )
+    assert row["profile_name"] == "baseline"
+    assert np.isclose(float(row["output_fraction"]), 0.5)
+    assert np.isclose(float(row["retention_ratio"]), 1.0)
+
+
+def test_select_refined_robust_hr_policy_profile_can_keep_baseline() -> None:
+    sweep = pd.DataFrame(
+        [
+            {
+                "profile_name": "baseline",
+                "rmse": 10.0,
+                "output_fraction": 0.95,
+                "hold_previous_fraction": 0.01,
+                "reject_fraction": 0.04,
+                "avg_abs_jump_bpm": 3.0,
+            },
+            {
+                "profile_name": "coverage_light",
+                "rmse": 10.4,
+                "output_fraction": 0.98,
+                "hold_previous_fraction": 0.03,
+                "reject_fraction": 0.01,
+                "avg_abs_jump_bpm": 3.4,
+            },
+        ]
+    )
+    annotated, summary = select_refined_robust_hr_policy_profile(
+        sweep,
+        baseline_profile_name="baseline",
+        selection_metric="rmse",
+        min_output_fraction=0.90,
+        max_hold_previous_fraction=0.02,
+        max_jump_increase_bpm=1.0,
+    )
+    assert bool(summary["baseline_is_best_feasible"])
+    assert summary["selected_profile_name"] == "baseline"
+    selected_mask = annotated["is_refined_selected"].astype(bool)
+    assert annotated.loc[selected_mask, "profile_name"].tolist() == ["baseline"]
 
 
 def test_apply_motion_aware_quality_decision_works_without_acc() -> None:

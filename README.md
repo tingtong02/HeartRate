@@ -3,6 +3,29 @@
 HeartRate_CNN is a public-dataset PPG heart rate analysis project.  
 The current repository state now includes **a narrow Stage 3 quality-gating track** on top of the Stage 0, Stage 1, and Stage 2 foundations.
 
+## Stage 3 Closure Status
+
+Stage 3 is now **practically complete for this repository's CPU-first scope**.
+
+- Completed Stage 3 core:
+  - window-level SQI / quality gating
+  - ML gating with train-only threshold selection and operating-point refinement
+  - minimum viable beat-level quality proxy through Stage 2 outputs
+  - robust-HR policy prototype with local 8 s beat fallback and limited auditable hold behavior
+- Current accuracy-oriented default Stage 3 path:
+  - `gated_stage3_ml_logreg`
+- Current robust-output prototype path:
+  - `robust_stage3c2_policy`
+- Analysis-only outputs:
+  - `enhanced_beat_quality_refined`
+  - `robust_stage3c2_policy_refined`
+- Deferred Stage 3 roadmap items:
+  - full beat-level SQI closure
+  - SSA / adaptive filtering / deep-learning denoising
+  - broader non-CPU-first Stage 3 extensions
+
+This closure is repository-specific and should not be read as “every broad original Stage 3 roadmap item is fully implemented.”
+
 ## Current Status
 
 Implemented so far:
@@ -30,6 +53,7 @@ Implemented so far:
 - a Stage 3 enhancement path with lightweight ML gating and motion-aware strengthened comparison on the same Stage 1 windows
 - a Stage 3B2 DWT-denoised comparison branch inside the same Stage 3 enhanced runner
 - a narrow Stage 3C2 robust-HR policy branch that adds local 8 s beat-derived fallback and a limited auditable `hold_previous` action on top of the same Stage 3 enhanced outputs
+- a narrow Stage 3C2.1 operating-point refinement path that keeps `robust_stage3c2_policy` as baseline and adds an analysis-only `robust_stage3c2_policy_refined` comparison row
 - basic evaluation metrics
 - smoke test and pytest coverage
 
@@ -41,7 +65,7 @@ Still not included:
 - frequency-domain or nonlinear HRV features
 - irregular pulse screening
 
-Current Stage 3 scope is still limited to a narrow, window-level SQI / quality-gating track.
+Current Stage 3 scope should now be treated as practically complete for this repository's narrow, CPU-first quality-aware HR layer.
 
 ## Environment Setup
 
@@ -205,9 +229,13 @@ To reproduce the Stage 3 enhancement round fairly:
 - keep the default subject-wise split seed unless you are intentionally running a new comparison
 - run `run_stage3_enhanced.py` once per dataset
 - use `outputs/{dataset}_stage3_enhanced_metrics.csv` as the source of record
+- use `gated_stage3_ml_logreg` as the current accuracy-oriented default Stage 3 comparison path
 - `robust_stage3c2_policy` is an additive comparison path inside the same Stage 3 enhanced run
+- `robust_stage3c2_policy` is the current robust-output prototype path for coverage / recovery / auditable fallback behavior
+- `robust_stage3c2_policy_refined` is analysis-only and must not be read as a silently adopted new default
 - the Stage 3C2 beat fallback is computed locally on each Stage 1 8 s window using the existing Stage 2 beat / IBI functions
 - `hold_previous` is intentionally limited, resets at subject boundaries, and is reported explicitly in the predictions CSV rather than acting as hidden smoothing
+- use `outputs/{dataset}_stage3_enhanced_policy_sweep.csv` to inspect the Stage 3C2.1 error / coverage / jump tradeoff explicitly
 
 ## Stage 1 Results
 
