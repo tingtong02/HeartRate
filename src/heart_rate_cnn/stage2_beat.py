@@ -20,6 +20,10 @@ def _variant_mode(config: dict[str, Any] | None) -> str:
     return str(cfg.get("variant_mode", "enhanced"))
 
 
+def _clip01(value: float) -> float:
+    return float(np.clip(value, 0.0, 1.0))
+
+
 def preprocess_ppg_for_beats(
     samples: np.ndarray,
     fs: float,
@@ -82,6 +86,182 @@ def _normalize_scores(values: np.ndarray) -> np.ndarray:
     if maximum - minimum <= 1e-8:
         return np.ones_like(array, dtype=float)
     return (array - minimum) / (maximum - minimum)
+
+
+def _linear_score(
+    value: float,
+    *,
+    good: float,
+    bad: float,
+    higher_is_better: bool,
+) -> float:
+    if not np.isfinite(value):
+        return 0.0
+    if math.isclose(good, bad):
+        return 1.0 if (value >= good if higher_is_better else value <= good) else 0.0
+
+    if higher_is_better:
+        if value <= bad:
+            return 0.0
+        if value >= good:
+            return 1.0
+        return _clip01((value - bad) / (good - bad))
+
+    if value <= good:
+        return 1.0
+    if value >= bad:
+        return 0.0
+    return _clip01((bad - value) / (bad - good))
+
+
+def _compute_clean_pair_flags(num_beats: int, ibi_mask: np.ndarray) -> np.ndarray:
+    flags = np.zeros(int(num_beats), dtype=bool)
+    mask = np.asarray(ibi_mask, dtype=bool)
+    if num_beats <= 1 or mask.size == 0:
+        return flags
+    for index, keep in enumerate(mask):
+        if keep:
+            flags[index] = True
+            if index + 1 < flags.size:
+                flags[index + 1] = True
+    return flags
+
+
+def compute_beat_quality_proxy(
+    ppg_window: np.ndarray,
+    beat_indices: np.ndarray,
+    fs: float,
+    *,
+    beat_config: dict[str, Any] | None = None,
+    ibi_config: dict[str, Any] | None = None,
+    quality_config: dict[str, Any] | None = None,
+) -> dict[str, np.ndarray]:
+    beat_cfg = beat_config or {}
+    ibi_cfg = ibi_config or {}
+    quality_cfg = quality_config or {}
+    beats = np.asarray(beat_indices, dtype=int)
+    if beats.size == 0:
+        empty_float = np.array([], dtype=float)
+        empty_bool = np.array([], dtype=bool)
+        empty_str = np.array([], dtype=str)
+        return {
+            "beat_quality_score": empty_float,
+            "beat_quality_label": empty_str,
+            "beat_is_kept_by_quality": empty_bool,
+            "beat_base_quality_score": empty_float,
+            "beat_ibi_plausibility_score": empty_float,
+            "beat_ibi_stability_score": empty_float,
+            "beat_crowding_score": empty_float,
+            "beat_has_clean_pred_ibi_pair": empty_bool,
+            "prev_ibi_s": empty_float,
+            "next_ibi_s": empty_float,
+        }
+
+    processed = preprocess_ppg_for_beats(ppg_window, fs=fs, config=beat_cfg, mode="refine")
+    base_scores = _compute_peak_quality_scores(processed, beats, fs=fs, config=beat_cfg)
+    ibi_s = extract_ibi_from_beats(beats, fs=fs)
+    clean_result = clean_ibi_series(ibi_s, {**ibi_cfg, "variant_mode": _variant_mode(ibi_cfg)})
+    clean_pair_flags = _compute_clean_pair_flags(beats.size, np.asarray(clean_result["ibi_mask"], dtype=bool))
+
+    prev_ibi_s = np.full(beats.size, math.nan, dtype=float)
+    next_ibi_s = np.full(beats.size, math.nan, dtype=float)
+    if ibi_s.size:
+        prev_ibi_s[1:] = ibi_s
+        next_ibi_s[:-1] = ibi_s
+
+    min_ibi_s = float(ibi_cfg.get("min_ibi_s", 0.33))
+    max_ibi_s = float(ibi_cfg.get("max_ibi_s", 1.5))
+    plausibility_margin_s = float(quality_cfg.get("plausibility_margin_s", 0.08))
+    jump_good_ratio = float(quality_cfg.get("jump_good_ratio", 0.08))
+    jump_bad_ratio = float(quality_cfg.get("jump_bad_ratio", 0.25))
+    crowding_scale = float(quality_cfg.get("crowding_good_scale", 1.10))
+    missing_ibi_score = float(quality_cfg.get("missing_ibi_score", 0.50))
+
+    weights = quality_cfg.get("weights", {})
+    weight_base = float(weights.get("base_peak_quality", 0.60))
+    weight_plausibility = float(weights.get("ibi_plausibility", 0.20))
+    weight_stability = float(weights.get("ibi_stability", 0.10))
+    weight_crowding = float(weights.get("crowding", 0.05))
+    weight_clean_pair = float(weights.get("clean_pair_bonus", 0.05))
+    total_weight = weight_base + weight_plausibility + weight_stability + weight_crowding + weight_clean_pair
+    if total_weight <= 0.0:
+        raise ValueError("Beat-quality weights must sum to a positive value.")
+
+    plausibility_scores = np.zeros(beats.size, dtype=float)
+    stability_scores = np.zeros(beats.size, dtype=float)
+    crowding_scores = np.zeros(beats.size, dtype=float)
+    final_scores = np.zeros(beats.size, dtype=float)
+    labels = np.empty(beats.size, dtype=object)
+    keep_flags = np.zeros(beats.size, dtype=bool)
+
+    for index in range(beats.size):
+        local_gaps = np.asarray(
+            [value for value in (prev_ibi_s[index], next_ibi_s[index]) if np.isfinite(value)],
+            dtype=float,
+        )
+        if local_gaps.size == 0:
+            plausibility_score = missing_ibi_score
+            crowding_score = missing_ibi_score
+        else:
+            gap_scores = []
+            for gap in local_gaps:
+                if gap < min_ibi_s or gap > max_ibi_s:
+                    gap_scores.append(0.0)
+                    continue
+                distance_to_edge = min(gap - min_ibi_s, max_ibi_s - gap)
+                gap_scores.append(_clip01(distance_to_edge / max(plausibility_margin_s, 1e-8)))
+            plausibility_score = float(np.mean(gap_scores))
+            crowding_score = _linear_score(
+                float(np.min(local_gaps)),
+                good=min_ibi_s * crowding_scale,
+                bad=min_ibi_s,
+                higher_is_better=True,
+            )
+
+        if np.isfinite(prev_ibi_s[index]) and np.isfinite(next_ibi_s[index]):
+            anchor = max(float(0.5 * (prev_ibi_s[index] + next_ibi_s[index])), 1e-8)
+            jump_ratio = abs(float(prev_ibi_s[index]) - float(next_ibi_s[index])) / anchor
+            stability_score = _linear_score(
+                jump_ratio,
+                good=jump_good_ratio,
+                bad=jump_bad_ratio,
+                higher_is_better=False,
+            )
+        else:
+            stability_score = missing_ibi_score
+
+        clean_pair_score = 1.0 if clean_pair_flags[index] else 0.0
+        score = (
+            weight_base * float(base_scores[index])
+            + weight_plausibility * plausibility_score
+            + weight_stability * stability_score
+            + weight_crowding * crowding_score
+            + weight_clean_pair * clean_pair_score
+        ) / total_weight
+        score = _clip01(score)
+
+        label = "good" if score >= float(quality_cfg.get("good_score_threshold", 0.55)) else "poor"
+        keep_flag = bool(label == "good")
+
+        plausibility_scores[index] = plausibility_score
+        stability_scores[index] = stability_score
+        crowding_scores[index] = crowding_score
+        final_scores[index] = score
+        labels[index] = label
+        keep_flags[index] = keep_flag
+
+    return {
+        "beat_quality_score": final_scores,
+        "beat_quality_label": labels.astype(str),
+        "beat_is_kept_by_quality": keep_flags,
+        "beat_base_quality_score": np.asarray(base_scores, dtype=float),
+        "beat_ibi_plausibility_score": plausibility_scores,
+        "beat_ibi_stability_score": stability_scores,
+        "beat_crowding_score": crowding_scores,
+        "beat_has_clean_pred_ibi_pair": clean_pair_flags,
+        "prev_ibi_s": prev_ibi_s,
+        "next_ibi_s": next_ibi_s,
+    }
 
 
 def _estimate_prominence_threshold(signal: np.ndarray, config: dict[str, Any]) -> float:

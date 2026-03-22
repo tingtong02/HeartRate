@@ -19,6 +19,7 @@ from heart_rate_cnn.split import train_test_subject_split
 from heart_rate_cnn.stage2_beat import (
     build_analysis_windows,
     clean_ibi_series,
+    compute_beat_quality_proxy,
     compute_time_domain_prv_features,
     detect_beats_in_window,
     detect_reference_beats_in_window,
@@ -92,8 +93,19 @@ def build_variant_configs(stage2_cfg: dict) -> tuple[dict[str, dict], dict]:
 
     return (
         {
-            "baseline": {"beat": baseline_beat, "ibi": baseline_ibi},
-            "enhanced": {"beat": enhanced_beat, "ibi": enhanced_ibi},
+            "baseline": {"beat": baseline_beat, "ibi": baseline_ibi, "beat_quality": {}},
+            "enhanced": {"beat": enhanced_beat, "ibi": enhanced_ibi, "beat_quality": {}},
+            **(
+                {
+                    "enhanced_beat_quality": {
+                        "beat": copy.deepcopy(enhanced_beat),
+                        "ibi": copy.deepcopy(enhanced_ibi),
+                        "beat_quality": copy.deepcopy(stage2_cfg.get("beat_quality", {})),
+                    }
+                }
+                if bool(stage2_cfg.get("beat_quality", {}).get("enabled", False))
+                else {}
+            ),
         },
         baseline_ibi,
     )
@@ -135,6 +147,46 @@ def summarize_error_cases(beat_frame: pd.DataFrame, max_cases_per_variant: int) 
     return pd.concat(frames, ignore_index=True)
 
 
+def summarize_beat_quality_proxy(beat_quality_frame: pd.DataFrame) -> pd.DataFrame:
+    if beat_quality_frame.empty:
+        return pd.DataFrame(
+            columns=[
+                "variant",
+                "task",
+                "metric_group",
+                "num_pred_beats",
+                "kept_beat_ratio",
+                "good_label_ratio",
+                "precision_among_kept",
+                "mean_score_matched",
+                "mean_score_unmatched",
+            ]
+        )
+
+    rows: list[dict[str, float | str]] = []
+    for variant in sorted(beat_quality_frame["variant"].unique()):
+        variant_frame = beat_quality_frame.loc[beat_quality_frame["variant"] == variant].copy()
+        if variant_frame.empty:
+            continue
+        kept_mask = variant_frame["beat_is_kept_by_quality"].astype(bool)
+        matched_mask = variant_frame["beat_is_matched_to_ref"].astype(bool)
+        kept_count = int(kept_mask.sum())
+        rows.append(
+            {
+                "variant": variant,
+                "task": "beat_quality_proxy",
+                "metric_group": "summary",
+                "num_pred_beats": float(variant_frame.shape[0]),
+                "kept_beat_ratio": float(kept_count / max(variant_frame.shape[0], 1)),
+                "good_label_ratio": float(np.mean(variant_frame["beat_quality_label"] == "good")),
+                "precision_among_kept": float(np.mean(matched_mask[kept_mask])) if kept_count > 0 else math.nan,
+                "mean_score_matched": float(variant_frame.loc[matched_mask, "beat_quality_score"].mean()) if matched_mask.any() else math.nan,
+                "mean_score_unmatched": float(variant_frame.loc[~matched_mask, "beat_quality_score"].mean()) if (~matched_mask).any() else math.nan,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
 def main() -> None:
     args = parse_args()
     config = merge_dicts(load_yaml(args.config), load_yaml(args.dataset_config))
@@ -165,6 +217,7 @@ def main() -> None:
 
     beat_rows: list[dict[str, float | str | int]] = []
     feature_rows: list[dict[str, float | str | int]] = []
+    beat_quality_rows: list[dict[str, float | str | int | bool]] = []
     variant_state: dict[str, dict[str, list[float] | int]] = {
         variant: {
             "all_ref_ibi_ms": [],
@@ -196,7 +249,21 @@ def main() -> None:
             )
 
             for variant, variant_cfg in variant_cfgs.items():
-                pred_beats = detect_beats_in_window(window["ppg_window"], window["ppg_fs"], variant_cfg["beat"])
+                raw_pred_beats = detect_beats_in_window(window["ppg_window"], window["ppg_fs"], variant_cfg["beat"])
+                pred_beats = raw_pred_beats
+                beat_quality_proxy = None
+                kept_raw_indices = np.arange(raw_pred_beats.size, dtype=int)
+                if bool(variant_cfg.get("beat_quality", {}).get("enabled", False)):
+                    beat_quality_proxy = compute_beat_quality_proxy(
+                        window["ppg_window"],
+                        raw_pred_beats,
+                        fs=window["ppg_fs"],
+                        beat_config=variant_cfg["beat"],
+                        ibi_config=variant_cfg["ibi"],
+                        quality_config=variant_cfg["beat_quality"],
+                    )
+                    kept_raw_indices = np.flatnonzero(beat_quality_proxy["beat_is_kept_by_quality"])
+                    pred_beats = raw_pred_beats[kept_raw_indices]
                 beat_eval = evaluate_beat_detection(
                     pred_beats,
                     ref_beats,
@@ -224,6 +291,8 @@ def main() -> None:
                     )
                     ref_ibi_ms = ref_ibi_ms[valid_pair_mask]
                     pred_ibi_ms = pred_ibi_ms[valid_pair_mask]
+                    ref_pair_indices = ref_pair_indices[valid_pair_mask]
+                    pred_pair_indices = pred_pair_indices[valid_pair_mask]
                 if ref_ibi_ms.size and pred_ibi_ms.size:
                     variant_state[variant]["all_ref_ibi_ms"].extend(ref_ibi_ms.tolist())
                     variant_state[variant]["all_pred_ibi_ms"].extend(pred_ibi_ms.tolist())
@@ -281,8 +350,70 @@ def main() -> None:
                     feature_row[f"ref_{feature_name}"] = float(ref_features[feature_name])
                 feature_rows.append(feature_row)
 
+                if beat_quality_proxy is not None:
+                    raw_eval = evaluate_beat_detection(
+                        raw_pred_beats,
+                        ref_beats,
+                        pred_fs=window["ppg_fs"],
+                        ref_fs=window["ecg_fs"],
+                        tolerance_seconds=float(stage2_cfg["matching"]["tolerance_seconds"]),
+                    )
+                    matched_raw_indices = {int(pred_idx) for pred_idx, _ in raw_eval["matches"]}
+
+                    quality_clean_pair_raw_flags = np.zeros(raw_pred_beats.size, dtype=bool)
+                    pred_clean_mask = np.asarray(pred_clean["ibi_mask"], dtype=bool)
+                    if pred_clean_mask.size:
+                        for filtered_start_idx, keep in enumerate(pred_clean_mask):
+                            if keep and filtered_start_idx < kept_raw_indices.size:
+                                raw_start_idx = int(kept_raw_indices[filtered_start_idx])
+                                quality_clean_pair_raw_flags[raw_start_idx] = True
+                                if raw_start_idx + 1 < raw_pred_beats.size:
+                                    quality_clean_pair_raw_flags[raw_start_idx + 1] = True
+
+                    matched_clean_pair_raw_flags = np.zeros(raw_pred_beats.size, dtype=bool)
+                    if pred_pair_indices.size:
+                        for filtered_start_idx in pred_pair_indices:
+                            if filtered_start_idx < kept_raw_indices.size:
+                                raw_start_idx = int(kept_raw_indices[filtered_start_idx])
+                                matched_clean_pair_raw_flags[raw_start_idx] = True
+                                if raw_start_idx + 1 < raw_pred_beats.size:
+                                    matched_clean_pair_raw_flags[raw_start_idx + 1] = True
+
+                    for raw_index, beat_sample_index in enumerate(raw_pred_beats.tolist()):
+                        beat_quality_rows.append(
+                            {
+                                "variant": variant,
+                                "dataset": window["dataset"],
+                                "subject_id": window["subject_id"],
+                                "analysis_window_index": window["analysis_window_index"],
+                                "start_time_s": window["start_time_s"],
+                                "duration_s": window["duration_s"],
+                                "beat_index_in_window": float(raw_index),
+                                "beat_sample_index": float(beat_sample_index),
+                                "beat_time_s": float(window["start_time_s"] + beat_sample_index / window["ppg_fs"]),
+                                "beat_quality_score": float(beat_quality_proxy["beat_quality_score"][raw_index]),
+                                "beat_quality_label": str(beat_quality_proxy["beat_quality_label"][raw_index]),
+                                "beat_is_kept_by_quality": bool(beat_quality_proxy["beat_is_kept_by_quality"][raw_index]),
+                                "beat_is_matched_to_ref": bool(raw_index in matched_raw_indices),
+                                "beat_has_clean_pred_ibi_pair": bool(beat_quality_proxy["beat_has_clean_pred_ibi_pair"][raw_index]),
+                                "beat_is_used_in_quality_clean_ibi_pair": bool(quality_clean_pair_raw_flags[raw_index]),
+                                "beat_is_in_matched_clean_ibi_pair": bool(matched_clean_pair_raw_flags[raw_index]),
+                                "beat_base_quality_score": float(beat_quality_proxy["beat_base_quality_score"][raw_index]),
+                                "beat_ibi_plausibility_score": float(beat_quality_proxy["beat_ibi_plausibility_score"][raw_index]),
+                                "beat_ibi_stability_score": float(beat_quality_proxy["beat_ibi_stability_score"][raw_index]),
+                                "beat_crowding_score": float(beat_quality_proxy["beat_crowding_score"][raw_index]),
+                                "prev_ibi_ms": float(beat_quality_proxy["prev_ibi_s"][raw_index] * 1000.0)
+                                if not math.isnan(float(beat_quality_proxy["prev_ibi_s"][raw_index]))
+                                else math.nan,
+                                "next_ibi_ms": float(beat_quality_proxy["next_ibi_s"][raw_index] * 1000.0)
+                                if not math.isnan(float(beat_quality_proxy["next_ibi_s"][raw_index]))
+                                else math.nan,
+                            }
+                        )
+
     beat_frame = pd.DataFrame(beat_rows)
     feature_frame = pd.DataFrame(feature_rows)
+    beat_quality_frame = pd.DataFrame(beat_quality_rows)
 
     metrics_parts: list[pd.DataFrame] = []
     for variant in variant_cfgs:
@@ -325,6 +456,10 @@ def main() -> None:
         feature_summary["metric_group"] = "summary"
         metrics_parts.extend([pd.DataFrame([beat_summary_row]), pd.DataFrame([ibi_summary_row]), feature_summary])
 
+    beat_quality_summary = summarize_beat_quality_proxy(beat_quality_frame)
+    if not beat_quality_summary.empty:
+        metrics_parts.append(beat_quality_summary)
+
     metrics_frame = pd.concat(metrics_parts, ignore_index=True, sort=False)
 
     print("Stage 2 baseline completed.")
@@ -359,6 +494,13 @@ def main() -> None:
                 if isinstance(mae, float) and not math.isnan(mae)
                 else f"    {row['feature']}: mae={mae}, pearson_r={pearson_r}"
             )
+        quality_subset = variant_metrics.loc[variant_metrics["task"] == "beat_quality_proxy"]
+        if not quality_subset.empty:
+            quality_row = quality_subset.iloc[0].to_dict()
+            print("  task: beat_quality_proxy")
+            for key in ("num_pred_beats", "kept_beat_ratio", "good_label_ratio", "precision_among_kept", "mean_score_matched", "mean_score_unmatched"):
+                value = quality_row.get(key, math.nan)
+                print(f"    {key}: {value:.4f}" if isinstance(value, float) and not math.isnan(value) else f"    {key}: {value}")
 
     save_csv = bool(output_cfg.get("save_csv", False))
     save_error_cases = bool(debug_cfg.get("save_error_cases", False))
@@ -368,12 +510,15 @@ def main() -> None:
 
     if save_csv:
         beats_path = output_dir / f"{dataset_cfg['name']}_stage2_beats.csv"
+        beat_quality_path = output_dir / f"{dataset_cfg['name']}_stage2_beat_quality.csv"
         features_path = output_dir / f"{dataset_cfg['name']}_stage2_features.csv"
         metrics_path = output_dir / f"{dataset_cfg['name']}_stage2_metrics.csv"
         beat_frame.to_csv(beats_path, index=False)
+        beat_quality_frame.to_csv(beat_quality_path, index=False)
         feature_frame.to_csv(features_path, index=False)
         metrics_frame.to_csv(metrics_path, index=False)
         print(f"Saved beats to: {beats_path}")
+        print(f"Saved beat quality to: {beat_quality_path}")
         print(f"Saved features to: {features_path}")
         print(f"Saved metrics to: {metrics_path}")
 

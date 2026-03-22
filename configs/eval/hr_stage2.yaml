@@ -42,6 +42,20 @@ stage2:
     jump_anchor_ratio: 0.12
     short_series_threshold: 5
     min_clean_ibi: 3
+  beat_quality:
+    enabled: true
+    good_score_threshold: 0.55
+    plausibility_margin_s: 0.08
+    jump_good_ratio: 0.08
+    jump_bad_ratio: 0.25
+    crowding_good_scale: 1.10
+    missing_ibi_score: 0.50
+    weights:
+      base_peak_quality: 0.60
+      ibi_plausibility: 0.20
+      ibi_stability: 0.10
+      crowding: 0.05
+      clean_pair_bonus: 0.05
   matching:
     tolerance_seconds: 0.15
   debug:

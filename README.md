@@ -232,6 +232,7 @@ Stage 2 first round only includes:
 - IBI extraction
 - IBI cleaning
 - basic time-domain PRV/HRV features
+- an exploratory beat-level quality proxy path on top of the enhanced beat pipeline
 
 Stage 2 still does not include:
 
@@ -286,6 +287,7 @@ Current Stage 2 takeaway:
 - `mean_ibi_ms` and `median_ibi_ms` are now clearly more usable than in the first round
 - variability features such as `sdnn_ms`, `rmssd_ms`, and `ibi_cv` also improve, but they are still weaker and remain more sensitive to beat / IBI errors than mean / median summaries
 - beat detection and IBI cleaning are now strong enough for Stage 2 to serve as a reasonable base for Stage 3
+- Stage 2 now also supports a minimum viable beat-level quality proxy comparison without introducing a new learned model family
 - if more Stage 2 work is done later, it should still focus on beat detection and IBI cleaning, but its priority is now lower than starting Stage 3
 
 ## Dataset Notes
@@ -310,6 +312,7 @@ For more detail, see:
 - Stage 1 is still a lightweight classical-signal baseline system, not a final robust estimator.
 - Stage 1 frequency is currently the best-performing path; fusion is mainly improving coverage and robustness relative to Stage 0, not surpassing the frequency chain yet.
 - Stage 2 enhancement round is still limited to beat / IBI / basic time-domain PRV-HRV only.
+- The new beat-level quality proxy is narrow, rule-based, and exploratory; it is not full beat-level SQI closure.
 - Stage 3 is still a narrow window-level SQI / quality-gating track centered on `stage1_frequency`, not full Stage 3 closure.
 - Stage 3B2 adds `PyWavelets` only for a single DWT comparison branch; it does not introduce SSA, adaptive filtering, beat-level SQI, or deep learning denoising.
 - Stage 2 is more reliable for mean / median IBI style summaries than for variability features such as `sdnn_ms`, `rmssd_ms`, and `ibi_cv`.

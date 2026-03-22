@@ -6,6 +6,7 @@ import pandas as pd
 from heart_rate_cnn.metrics import summarize_feature_metrics
 from heart_rate_cnn.stage2_beat import (
     clean_ibi_series,
+    compute_beat_quality_proxy,
     compute_time_domain_prv_features,
     detect_beats_in_window,
     evaluate_beat_detection,
@@ -160,3 +161,60 @@ def test_summarize_feature_metrics_returns_rows() -> None:
     )
     summary = summarize_feature_metrics(frame, ["mean_ibi_ms", "rmssd_ms"], ref_prefix="ref_", pred_prefix="pred_")
     assert list(summary["feature"]) == ["mean_ibi_ms", "rmssd_ms"]
+
+
+def test_compute_beat_quality_proxy_returns_per_beat_outputs() -> None:
+    fs = 64.0
+    _, signal = _make_ppg_like_signal(fs, bpm=72.0, duration_s=12.0)
+    beats = detect_beats_in_window(signal, fs=fs, config={"variant_mode": "enhanced"})
+    quality = compute_beat_quality_proxy(
+        signal,
+        beats,
+        fs=fs,
+        beat_config={"variant_mode": "enhanced"},
+        ibi_config={"variant_mode": "enhanced", "min_ibi_s": 0.33, "max_ibi_s": 1.5},
+        quality_config={"good_score_threshold": 0.55},
+    )
+    assert quality["beat_quality_score"].shape[0] == beats.size
+    assert quality["beat_quality_label"].shape[0] == beats.size
+    assert quality["beat_is_kept_by_quality"].shape[0] == beats.size
+    assert np.all((quality["beat_quality_score"] >= 0.0) & (quality["beat_quality_score"] <= 1.0))
+
+
+def test_compute_beat_quality_proxy_penalizes_crowded_beats() -> None:
+    fs = 64.0
+    signal = np.zeros(256, dtype=float)
+    x = np.arange(signal.size)
+    for center in (40, 96, 104, 180):
+        signal += np.exp(-0.5 * ((x - center) / 2.5) ** 2)
+    beats = np.array([40, 96, 104, 180], dtype=int)
+    quality = compute_beat_quality_proxy(
+        signal,
+        beats,
+        fs=fs,
+        beat_config={"variant_mode": "enhanced"},
+        ibi_config={"variant_mode": "enhanced", "min_ibi_s": 0.33, "max_ibi_s": 1.5},
+        quality_config={"good_score_threshold": 0.55},
+    )
+    outer_score = float(np.mean([quality["beat_quality_score"][0], quality["beat_quality_score"][-1]]))
+    inner_score = float(np.mean([quality["beat_quality_score"][1], quality["beat_quality_score"][2]]))
+    assert inner_score < outer_score
+
+
+def test_compute_beat_quality_proxy_quality_flag_matches_threshold() -> None:
+    fs = 64.0
+    signal = np.zeros(256, dtype=float)
+    x = np.arange(signal.size)
+    for center in (40, 96, 104, 180):
+        signal += np.exp(-0.5 * ((x - center) / 2.5) ** 2)
+    beats = np.array([40, 96, 104, 180], dtype=int)
+    quality = compute_beat_quality_proxy(
+        signal,
+        beats,
+        fs=fs,
+        beat_config={"variant_mode": "enhanced"},
+        ibi_config={"variant_mode": "enhanced", "min_ibi_s": 0.33, "max_ibi_s": 1.5},
+        quality_config={"good_score_threshold": 0.65},
+    )
+    reconstructed = quality["beat_quality_score"] >= 0.65
+    assert np.array_equal(quality["beat_is_kept_by_quality"], reconstructed)

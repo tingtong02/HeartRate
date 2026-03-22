@@ -8,12 +8,11 @@ Stage 2 enhancement round still only covers:
 - IBI extraction
 - IBI cleaning
 - basic time-domain PRV/HRV features
+- an optional exploratory beat-level quality proxy on top of the enhanced beat path
 - Stage 2 evaluation
 - lightweight numeric error-case review
 
 This round does not include SQI, event detection, irregular pulse screening, respiration, or deep learning.
-
-Stage 3 has not started.
 
 ## Environment
 
@@ -62,6 +61,7 @@ Each run now writes both `baseline` and `enhanced` results for the same subject 
 - default analysis step is `30 s`
 - Stage 2 keeps `stage1_frequency` as the current strongest HR baseline background
 - `run_stage2_baseline.py` compares `baseline` and `enhanced` variants in one pass
+- when `stage2.beat_quality.enabled: true`, `run_stage2_baseline.py` also evaluates an `enhanced_beat_quality` variant
 - lightweight error-case export is off by default and can be enabled from `configs/eval/hr_stage2.yaml`
 
 ## Outputs
@@ -69,6 +69,7 @@ Each run now writes both `baseline` and `enhanced` results for the same subject 
 Stage 2 writes:
 
 - `outputs/{dataset}_stage2_beats.csv`
+- `outputs/{dataset}_stage2_beat_quality.csv`
 - `outputs/{dataset}_stage2_features.csv`
 - `outputs/{dataset}_stage2_metrics.csv`
 - optional `outputs/{dataset}_stage2_error_cases.csv`
@@ -115,4 +116,4 @@ Current interpretation:
 
 - Beat detection is direct peak finding plus local refinement, not a Hilbert-envelope-first design.
 - The feature set is still strictly time-domain only.
-- Stage 3 has not started.
+- The beat-level quality proxy is rule-based and intended as a minimum viable quality layer, not full beat-level SQI closure.
