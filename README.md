@@ -253,6 +253,7 @@ Stage 3 enhancement round currently adds:
 
 - a lightweight `LogisticRegression` quality model on top of the Stage 3 rule baseline
 - fair comparison of ungated, rule-gated, and ML-gated `stage1_frequency`
+- threshold / retention tradeoff analysis and operating-point summary CSVs for the ML-gated path
 
 Stage 3 round 1 does not include:
 

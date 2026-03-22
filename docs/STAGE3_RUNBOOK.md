@@ -93,6 +93,8 @@ Enhancement round writes:
 
 - `outputs/{dataset}_stage3_enhanced_predictions.csv`
 - `outputs/{dataset}_stage3_enhanced_metrics.csv`
+- `outputs/{dataset}_stage3_enhanced_threshold_sweep.csv`
+- `outputs/{dataset}_stage3_enhanced_operating_points.csv`
 
 These tables compare:
 
@@ -100,9 +102,15 @@ These tables compare:
 - rule-based Stage 3 gating
 - ML-based Stage 3 gating using `LogisticRegression`
 
+The threshold-analysis outputs stay strictly within Stage 3:
+
+- `*_threshold_sweep.csv` records train-only threshold sweeps and report-only test sweeps
+- `*_operating_points.csv` records the selected threshold, reference operating points, and a compact status such as `stable`, `fragile`, or `suboptimal`
+
 ## Notes
 
 - Pseudo-labels are derived from ECG-backed Stage 1 frequency HR error.
 - Good / poor target thresholds are config-driven in `configs/eval/hr_stage3.yaml`.
 - `motion_flag` is diagnostic in round 1 and does not independently override the main quality decision.
 - The enhancement round uses the same pseudo-labels as the rule baseline and selects the ML gating threshold on train subjects only.
+- Test-set threshold rows are for reporting only and are not used to choose the deployed threshold.

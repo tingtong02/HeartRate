@@ -432,6 +432,170 @@ def apply_ml_quality_decision(
     }
 
 
+def evaluate_ml_threshold_grid(
+    frame: pd.DataFrame,
+    *,
+    score_col: str,
+    pred_col: str,
+    valid_col: str,
+    ref_col: str = "ref_hr_bpm",
+    target_col: str = "quality_target_label",
+    threshold_grid: list[float] | tuple[float, ...] = (0.3, 0.4, 0.5, 0.6, 0.7, 0.8),
+    min_retention_ratio: float = 0.9,
+    split_name: str = "train",
+    sweep_stage: str = "coarse",
+) -> pd.DataFrame:
+    if frame.empty:
+        raise ValueError("evaluate_ml_threshold_grid requires a non-empty frame.")
+
+    ungated_valid_count = int(frame[valid_col].fillna(False).astype(bool).sum())
+    classification_frame = frame.loc[frame[target_col].isin(["good", "poor"])].copy()
+    rows: list[dict[str, float | str | bool]] = []
+    for threshold in threshold_grid:
+        score_mask = frame[score_col].to_numpy(dtype=float) >= float(threshold)
+        valid_mask = (
+            frame[ref_col].notna()
+            & frame[pred_col].notna()
+            & frame[valid_col].astype(bool)
+            & score_mask
+        )
+        gated_frame = frame.loc[valid_mask]
+        hr_metrics = compute_hr_metrics(
+            gated_frame[ref_col].to_numpy(dtype=float),
+            gated_frame[pred_col].to_numpy(dtype=float),
+        )
+        retention_ratio = float(gated_frame.shape[0] / ungated_valid_count) if ungated_valid_count > 0 else 0.0
+
+        if classification_frame.empty:
+            class_metrics = {
+                "accuracy": math.nan,
+                "precision": math.nan,
+                "recall": math.nan,
+                "f1": math.nan,
+                "num_eval_windows": 0.0,
+            }
+        else:
+            class_predictions = np.where(
+                classification_frame[score_col].to_numpy(dtype=float) >= float(threshold),
+                "good",
+                "poor",
+            )
+            class_metrics = compute_binary_classification_summary(
+                classification_frame[target_col].tolist(),
+                class_predictions.tolist(),
+            )
+
+        rows.append(
+            {
+                "split": split_name,
+                "sweep_stage": sweep_stage,
+                "threshold": float(threshold),
+                "retention_ratio": retention_ratio,
+                "num_valid_windows": float(gated_frame.shape[0]),
+                "mae": hr_metrics["mae"],
+                "rmse": hr_metrics["rmse"],
+                "mape": hr_metrics["mape"],
+                "pearson_r": hr_metrics["pearson_r"],
+                "accuracy": class_metrics["accuracy"],
+                "precision": class_metrics["precision"],
+                "recall": class_metrics["recall"],
+                "f1": class_metrics["f1"],
+                "num_eval_windows": class_metrics["num_eval_windows"],
+                "is_feasible_retention": bool(retention_ratio >= min_retention_ratio),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def summarize_threshold_selection(threshold_frame: pd.DataFrame) -> dict[str, float]:
+    if threshold_frame.empty:
+        raise ValueError("summarize_threshold_selection requires a non-empty threshold frame.")
+
+    feasible = threshold_frame.loc[threshold_frame["is_feasible_retention"].astype(bool)].copy()
+    candidate_frame = feasible if not feasible.empty else threshold_frame.copy()
+    ranked = candidate_frame.sort_values(
+        by=["mae", "retention_ratio", "f1", "threshold"],
+        ascending=[True, False, False, True],
+    ).reset_index(drop=True)
+    best = ranked.iloc[0].to_dict()
+    selected_mae = float(best["mae"])
+    return {
+        "selected_threshold": float(best["threshold"]),
+        "retention_ratio": float(best["retention_ratio"]),
+        "mae": selected_mae if math.isfinite(selected_mae) else math.nan,
+        "f1": float(best["f1"]) if not math.isnan(float(best["f1"])) else math.nan,
+    }
+
+
+def build_refined_threshold_grid(
+    *,
+    center_threshold: float,
+    refinement_radius: float,
+    refinement_step: float,
+) -> list[float]:
+    if refinement_step <= 0:
+        raise ValueError("refinement_step must be positive.")
+    if refinement_radius < 0:
+        raise ValueError("refinement_radius must be non-negative.")
+
+    thresholds = []
+    current = center_threshold - refinement_radius
+    end = center_threshold + refinement_radius + refinement_step * 0.5
+    while current <= end:
+        thresholds.append(float(np.clip(round(current, 10), 0.0, 1.0)))
+        current += refinement_step
+    thresholds.append(float(np.clip(center_threshold, 0.0, 1.0)))
+    return sorted(set(thresholds))
+
+
+def summarize_operating_point_status(
+    fine_train_frame: pd.DataFrame,
+    *,
+    selected_threshold: float,
+    stability_mae_tolerance: float,
+    stable_min_threshold_count: int,
+) -> dict[str, float | str]:
+    if fine_train_frame.empty:
+        return {
+            "operating_point_status": "unknown",
+            "stable_threshold_count": 0.0,
+            "selected_threshold_rank": math.nan,
+        }
+
+    ranked = fine_train_frame.sort_values(
+        by=["mae", "retention_ratio", "f1", "threshold"],
+        ascending=[True, False, False, True],
+    ).reset_index(drop=True)
+    selected_rows = ranked.loc[np.isclose(ranked["threshold"].to_numpy(dtype=float), selected_threshold)]
+    if selected_rows.empty:
+        return {
+            "operating_point_status": "unknown",
+            "stable_threshold_count": 0.0,
+            "selected_threshold_rank": math.nan,
+        }
+
+    selected_row = selected_rows.iloc[0]
+    feasible = ranked.loc[ranked["is_feasible_retention"].astype(bool)].copy()
+    if feasible.empty:
+        feasible = ranked
+    selected_mae = float(selected_row["mae"])
+    stable_band = feasible.loc[feasible["mae"].to_numpy(dtype=float) <= selected_mae + stability_mae_tolerance]
+    stable_threshold_count = int(stable_band.shape[0])
+    selected_rank = int(selected_rows.index[0] + 1)
+
+    if selected_rank > 1:
+        status = "suboptimal"
+    elif stable_threshold_count >= stable_min_threshold_count:
+        status = "stable"
+    else:
+        status = "fragile"
+    return {
+        "operating_point_status": status,
+        "stable_threshold_count": float(stable_threshold_count),
+        "selected_threshold_rank": float(selected_rank),
+    }
+
+
 def select_best_ml_threshold(
     frame: pd.DataFrame,
     *,
@@ -443,71 +607,14 @@ def select_best_ml_threshold(
     threshold_grid: list[float] | tuple[float, ...] = (0.3, 0.4, 0.5, 0.6, 0.7, 0.8),
     min_retention_ratio: float = 0.9,
 ) -> dict[str, float]:
-    if frame.empty:
-        raise ValueError("select_best_ml_threshold requires a non-empty frame.")
-
-    ungated_valid_count = int(frame[valid_col].fillna(False).astype(bool).sum())
-    if ungated_valid_count <= 0:
-        return {
-            "selected_threshold": float(threshold_grid[0]),
-            "retention_ratio": 0.0,
-            "mae": math.nan,
-            "f1": math.nan,
-        }
-
-    classification_frame = frame.loc[frame[target_col].isin(["good", "poor"])].copy()
-    rows: list[dict[str, float | bool]] = []
-    for threshold in threshold_grid:
-        predicted_labels = np.where(frame[score_col].to_numpy(dtype=float) >= threshold, "good", "poor")
-        valid_mask = (
-            frame[ref_col].notna()
-            & frame[pred_col].notna()
-            & frame[valid_col].astype(bool)
-            & (frame[score_col].to_numpy(dtype=float) >= threshold)
-        )
-        gated_frame = frame.loc[valid_mask]
-        hr_metrics = compute_hr_metrics(
-            gated_frame[ref_col].to_numpy(dtype=float),
-            gated_frame[pred_col].to_numpy(dtype=float),
-        )
-
-        if classification_frame.empty:
-            f1 = math.nan
-        else:
-            class_predictions = np.where(
-                classification_frame[score_col].to_numpy(dtype=float) >= threshold,
-                "good",
-                "poor",
-            )
-            class_metrics = compute_binary_classification_summary(
-                classification_frame[target_col].tolist(),
-                class_predictions.tolist(),
-            )
-            f1 = float(class_metrics["f1"]) if not math.isnan(float(class_metrics["f1"])) else math.nan
-
-        retention_ratio = float(gated_frame.shape[0] / ungated_valid_count)
-        rows.append(
-            {
-                "threshold": float(threshold),
-                "retention_ratio": retention_ratio,
-                "mae": float(hr_metrics["mae"]) if not math.isnan(float(hr_metrics["mae"])) else math.inf,
-                "f1": f1 if not math.isnan(f1) else -1.0,
-                "feasible": bool(retention_ratio >= min_retention_ratio),
-            }
-        )
-
-    threshold_frame = pd.DataFrame(rows)
-    feasible = threshold_frame.loc[threshold_frame["feasible"]].copy()
-    candidate_frame = feasible if not feasible.empty else threshold_frame
-    candidate_frame = candidate_frame.sort_values(
-        by=["mae", "retention_ratio", "f1", "threshold"],
-        ascending=[True, False, False, True],
+    threshold_frame = evaluate_ml_threshold_grid(
+        frame,
+        score_col=score_col,
+        pred_col=pred_col,
+        valid_col=valid_col,
+        ref_col=ref_col,
+        target_col=target_col,
+        threshold_grid=threshold_grid,
+        min_retention_ratio=min_retention_ratio,
     )
-    best = candidate_frame.iloc[0].to_dict()
-    selected_mae = float(best["mae"])
-    return {
-        "selected_threshold": float(best["threshold"]),
-        "retention_ratio": float(best["retention_ratio"]),
-        "mae": selected_mae if math.isfinite(selected_mae) else math.nan,
-        "f1": float(best["f1"]) if float(best["f1"]) >= 0 else math.nan,
-    }
+    return summarize_threshold_selection(threshold_frame)

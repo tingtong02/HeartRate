@@ -5,15 +5,19 @@ import numpy as np
 from heart_rate_cnn.stage3_quality import (
     apply_rule_based_quality_decision,
     apply_ml_quality_decision,
+    build_refined_threshold_grid,
     build_ml_feature_matrix,
     build_ml_feature_row,
     build_quality_target,
     compute_binary_classification_summary,
     compute_motion_summary,
+    evaluate_ml_threshold_grid,
     extract_quality_features,
     fit_quality_logistic_regression,
     predict_quality_logistic_regression,
     select_best_ml_threshold,
+    summarize_operating_point_status,
+    summarize_threshold_selection,
 )
 from heart_rate_cnn.types import WindowSample
 
@@ -315,3 +319,72 @@ def test_select_best_ml_threshold_prefers_low_mae_with_retention_floor() -> None
     )
     assert summary["selected_threshold"] in {0.3, 0.5, 0.8}
     assert summary["retention_ratio"] >= 0.5
+
+
+def test_evaluate_ml_threshold_grid_returns_expected_columns() -> None:
+    import pandas as pd
+
+    frame = pd.DataFrame(
+        {
+            "quality_target_label": ["good", "poor"],
+            "ml_signal_quality_score": [0.9, 0.2],
+            "ref_hr_bpm": [70.0, 80.0],
+            "ungated_pred_hr_bpm": [70.0, 95.0],
+            "ungated_is_valid": [True, True],
+        }
+    )
+    summary = evaluate_ml_threshold_grid(
+        frame,
+        score_col="ml_signal_quality_score",
+        pred_col="ungated_pred_hr_bpm",
+        valid_col="ungated_is_valid",
+        threshold_grid=[0.3, 0.6],
+        min_retention_ratio=0.5,
+        split_name="train_select",
+        sweep_stage="coarse",
+    )
+    assert list(summary["threshold"]) == [0.3, 0.6]
+    assert "retention_ratio" in summary.columns
+    assert "is_feasible_retention" in summary.columns
+
+
+def test_build_refined_threshold_grid_returns_centered_grid() -> None:
+    grid = build_refined_threshold_grid(center_threshold=0.45, refinement_radius=0.04, refinement_step=0.02)
+    assert grid == [0.41, 0.43, 0.45, 0.47, 0.49]
+
+
+def test_summarize_threshold_selection_matches_best_row() -> None:
+    import pandas as pd
+
+    frame = pd.DataFrame(
+        {
+            "threshold": [0.3, 0.5, 0.7],
+            "retention_ratio": [1.0, 0.8, 0.6],
+            "mae": [10.0, 8.0, 8.5],
+            "f1": [0.7, 0.8, 0.9],
+            "is_feasible_retention": [True, True, False],
+        }
+    )
+    summary = summarize_threshold_selection(frame)
+    assert np.isclose(summary["selected_threshold"], 0.5)
+
+
+def test_summarize_operating_point_status_marks_stable_band() -> None:
+    import pandas as pd
+
+    fine_frame = pd.DataFrame(
+        {
+            "threshold": [0.41, 0.43, 0.45],
+            "retention_ratio": [0.98, 0.97, 0.96],
+            "mae": [8.05, 8.01, 8.00],
+            "f1": [0.84, 0.85, 0.86],
+            "is_feasible_retention": [True, True, True],
+        }
+    )
+    summary = summarize_operating_point_status(
+        fine_frame,
+        selected_threshold=0.45,
+        stability_mae_tolerance=0.10,
+        stable_min_threshold_count=3,
+    )
+    assert summary["operating_point_status"] == "stable"

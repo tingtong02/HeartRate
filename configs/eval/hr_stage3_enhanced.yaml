@@ -70,6 +70,12 @@ stage3:
     max_iter: 1000
     min_retention_ratio: 0.95
     threshold_grid: [0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80]
+    refine_threshold: true
+    refinement_radius: 0.10
+    refinement_step: 0.02
+    stability_mae_tolerance: 0.10
+    stable_min_threshold_count: 3
+    save_threshold_analysis: true
 
 output:
   save_csv: true
