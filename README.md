@@ -1,7 +1,7 @@
 # HeartRate_CNN
 
 HeartRate_CNN is a public-dataset PPG heart rate analysis project.  
-The current repository state now includes **a Stage 3 round-1 rule-based quality-gating baseline** on top of the Stage 0, Stage 1, and Stage 2 foundations.
+The current repository state now includes **a narrow Stage 3 quality-gating track** on top of the Stage 0, Stage 1, and Stage 2 foundations.
 
 ## Current Status
 
@@ -25,6 +25,7 @@ Implemented so far:
 - optional lightweight Stage 2 worst-window CSV summaries for error review
 - a Stage 3 round-1 rule-based quality-gating baseline for `stage1_frequency`
 - a Stage 3 evaluation script that compares ungated and quality-gated `stage1_frequency` on the same Stage 1 windows
+- a Stage 3 enhancement path with lightweight ML gating and motion-aware strengthened comparison on the same Stage 1 windows
 - basic evaluation metrics
 - smoke test and pytest coverage
 
@@ -36,7 +37,7 @@ Still not included:
 - frequency-domain or nonlinear HRV features
 - irregular pulse screening
 
-Current Stage 3 scope is still limited to a narrow round-1 SQI / quality-gating baseline.
+Current Stage 3 scope is still limited to a narrow, window-level SQI / quality-gating track.
 
 ## Environment Setup
 
@@ -254,6 +255,7 @@ Stage 3 enhancement round currently adds:
 - a lightweight `LogisticRegression` quality model on top of the Stage 3 rule baseline
 - fair comparison of ungated, rule-gated, and ML-gated `stage1_frequency`
 - threshold / retention tradeoff analysis and operating-point summary CSVs for the ML-gated path
+- a motion-aware strengthened comparison path that refines the existing ML-gated quality score using optional ACC summaries and PPG instability features
 
 Stage 3 round 1 does not include:
 
@@ -306,7 +308,7 @@ For more detail, see:
 - Stage 1 is still a lightweight classical-signal baseline system, not a final robust estimator.
 - Stage 1 frequency is currently the best-performing path; fusion is mainly improving coverage and robustness relative to Stage 0, not surpassing the frequency chain yet.
 - Stage 2 enhancement round is still limited to beat / IBI / basic time-domain PRV-HRV only.
-- Stage 3 round 1 is still a narrow rule-based SQI / quality-gating baseline centered on `stage1_frequency`.
+- Stage 3 is still a narrow window-level SQI / quality-gating track centered on `stage1_frequency`, not full Stage 3 closure.
 - Stage 2 is more reliable for mean / median IBI style summaries than for variability features such as `sdnn_ms`, `rmssd_ms`, and `ibi_cv`.
 - Current baseline quality is intended for reproducible validation, not final performance.
 - Dataset configs in the repository are templates only; local paths must be set in ignored `*.local.yaml` files.

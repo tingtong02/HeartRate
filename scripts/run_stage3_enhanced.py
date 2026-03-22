@@ -19,6 +19,7 @@ from heart_rate_cnn.stage1_hr import (
 )
 from heart_rate_cnn.stage3_quality import (
     apply_ml_quality_decision,
+    apply_motion_aware_quality_decision,
     apply_rule_based_quality_decision,
     build_refined_threshold_grid,
     build_quality_target,
@@ -326,6 +327,43 @@ def main() -> None:
         for validity_flag, ungated_valid in zip(eval_frame["ml_validity_flag"].tolist(), eval_frame["ungated_is_valid"].tolist())
     ]
 
+    motion_refined_decisions = [
+        apply_motion_aware_quality_decision(
+            base_signal_quality_score=float(score),
+            window_is_valid=bool(row["window_is_valid"]),
+            freq_is_valid=bool(row["freq_is_valid"]),
+            features=row,
+            config=stage3_cfg.get("motion_refine", {}),
+            fallback_threshold=selected_threshold,
+        )
+        for score, row in zip(eval_frame["ml_signal_quality_score"].tolist(), eval_frame.to_dict(orient="records"))
+    ]
+    eval_frame["motion_aux_score"] = [float(row["motion_aux_score"]) for row in motion_refined_decisions]
+    eval_frame["motion_refined_quality_score"] = [
+        float(row["motion_refined_quality_score"]) for row in motion_refined_decisions
+    ]
+    eval_frame["motion_refined_quality_label"] = [
+        str(row["motion_refined_quality_label"]) for row in motion_refined_decisions
+    ]
+    eval_frame["motion_refined_validity_flag"] = [
+        bool(row["motion_refined_validity_flag"]) for row in motion_refined_decisions
+    ]
+    motion_refined_threshold = float(motion_refined_decisions[0]["quality_threshold"]) if motion_refined_decisions else selected_threshold
+    eval_frame["motion_refined_gated_pred_hr_bpm"] = [
+        float(pred_hr) if bool(validity_flag) else math.nan
+        for pred_hr, validity_flag in zip(
+            eval_frame["ungated_pred_hr_bpm"].tolist(),
+            eval_frame["motion_refined_validity_flag"].tolist(),
+        )
+    ]
+    eval_frame["motion_refined_gated_is_valid"] = [
+        bool(validity_flag and ungated_valid)
+        for validity_flag, ungated_valid in zip(
+            eval_frame["motion_refined_validity_flag"].tolist(),
+            eval_frame["ungated_is_valid"].tolist(),
+        )
+    ]
+
     eval_selected_row = eval_report_sweep.loc[
         np.isclose(eval_report_sweep["threshold"].to_numpy(dtype=float), selected_threshold)
     ]
@@ -339,6 +377,12 @@ def main() -> None:
             label_col="ml_signal_quality_label",
             method="stage3_ml_logreg",
             selected_threshold=selected_threshold,
+        ),
+        _summarize_quality_method(
+            eval_frame,
+            label_col="motion_refined_quality_label",
+            method="stage3_motion_refined",
+            selected_threshold=motion_refined_threshold,
         ),
         _summarize_hr_method(
             eval_frame,
@@ -361,6 +405,14 @@ def main() -> None:
             method="gated_stage3_ml_logreg",
             ungated_valid_count=ungated_valid_count,
             selected_threshold=selected_threshold,
+        ),
+        _summarize_hr_method(
+            eval_frame,
+            pred_col="motion_refined_gated_pred_hr_bpm",
+            valid_col="motion_refined_gated_is_valid",
+            method="gated_stage3_motion_refined",
+            ungated_valid_count=ungated_valid_count,
+            selected_threshold=motion_refined_threshold,
         ),
     ]
     metrics_frame = pd.DataFrame(metrics_rows)
@@ -474,14 +526,14 @@ def main() -> None:
     print(f"Windows generated: {len(eval_frame)}")
     print(f"Selected ML threshold: {selected_threshold:.4f}")
     print(f"Operating-point status: {fine_status['operating_point_status']}")
-    for method in ("stage3_rule_baseline", "stage3_ml_logreg"):
+    for method in ("stage3_rule_baseline", "stage3_ml_logreg", "stage3_motion_refined"):
         row = metrics_frame.loc[metrics_frame["method"] == method].iloc[0].to_dict()
         print(f"quality method: {method}")
         for key in ("accuracy", "precision", "recall", "f1", "num_eval_windows"):
             value = row[key]
             print(f"  {key}: {value:.4f}" if isinstance(value, float) and not math.isnan(value) else f"  {key}: {value}")
 
-    for method in ("ungated_stage1_frequency", "gated_stage3_rule", "gated_stage3_ml_logreg"):
+    for method in ("ungated_stage1_frequency", "gated_stage3_rule", "gated_stage3_ml_logreg", "gated_stage3_motion_refined"):
         row = metrics_frame.loc[metrics_frame["method"] == method].iloc[0].to_dict()
         print(f"hr method: {method}")
         for key in ("mae", "rmse", "mape", "pearson_r", "num_valid_windows", "retention_ratio"):

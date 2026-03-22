@@ -64,6 +64,39 @@ stage3:
   motion:
     accel_std_threshold: 0.35
     accel_range_threshold: 1.5
+  motion_refine:
+    enabled: true
+    quality_threshold: ~
+    motion_aux_good: 0.70
+    motion_aux_bad: 0.35
+    peak_ratio_good: 2.5
+    peak_ratio_bad: 1.1
+    time_confidence_good: 0.60
+    time_confidence_bad: 0.25
+    hr_agreement_good_bpm: 3.0
+    hr_agreement_bad_bpm: 12.0
+    missing_time_agreement_score: 0.0
+    diff_std_good: 0.12
+    diff_std_bad: 0.35
+    acc_std_good: 0.15
+    acc_std_bad: 0.45
+    acc_range_good: 0.40
+    acc_range_bad: 1.80
+    blend_weight: 0.20
+    penalty_if_motion_flag: 0.03
+    penalty_if_high_acc_std: 0.03
+    penalty_if_high_acc_range: 0.03
+    penalty_if_high_diff_std: 0.04
+    penalty_if_low_peak_ratio: 0.03
+    penalty_if_low_time_confidence: 0.02
+    penalty_if_high_hr_disagreement: 0.04
+    weights:
+      diff_std: 0.30
+      hr_agreement: 0.25
+      time_confidence: 0.15
+      peak_ratio: 0.15
+      acc_std: 0.075
+      acc_range: 0.075
   ml:
     model_name: logistic_regression
     c_value: 1.0

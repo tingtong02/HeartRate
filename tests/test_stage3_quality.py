@@ -5,6 +5,7 @@ import numpy as np
 from heart_rate_cnn.stage3_quality import (
     apply_rule_based_quality_decision,
     apply_ml_quality_decision,
+    apply_motion_aware_quality_decision,
     build_refined_threshold_grid,
     build_ml_feature_matrix,
     build_ml_feature_row,
@@ -15,6 +16,7 @@ from heart_rate_cnn.stage3_quality import (
     extract_quality_features,
     fit_quality_logistic_regression,
     predict_quality_logistic_regression,
+    score_motion_awareness,
     select_best_ml_threshold,
     summarize_operating_point_status,
     summarize_threshold_selection,
@@ -295,6 +297,123 @@ def test_apply_ml_quality_decision_uses_threshold() -> None:
     assert decision["signal_quality_label"] == "good"
     assert decision["validity_flag"]
     assert decision["motion_flag"]
+
+
+def test_score_motion_awareness_rewards_clean_window() -> None:
+    score = score_motion_awareness(
+        {
+            "ppg_processed_diff_std": 0.08,
+            "hr_agreement_bpm": 1.5,
+            "time_is_valid": True,
+            "time_confidence": 0.75,
+            "freq_peak_ratio": 2.8,
+            "has_acc": True,
+            "acc_axis_std_norm": 0.08,
+            "acc_mag_range": 0.20,
+        },
+        config={},
+    )
+    assert score > 0.7
+
+
+def test_score_motion_awareness_penalizes_noisy_motion_heavy_window() -> None:
+    score = score_motion_awareness(
+        {
+            "ppg_processed_diff_std": 0.40,
+            "hr_agreement_bpm": 16.0,
+            "time_is_valid": True,
+            "time_confidence": 0.15,
+            "freq_peak_ratio": 1.0,
+            "has_acc": True,
+            "acc_axis_std_norm": 0.60,
+            "acc_mag_range": 2.20,
+        },
+        config={},
+    )
+    assert score < 0.3
+
+
+def test_apply_motion_aware_quality_decision_keeps_motion_auxiliary() -> None:
+    decision = apply_motion_aware_quality_decision(
+        base_signal_quality_score=0.70,
+        window_is_valid=True,
+        freq_is_valid=True,
+        features={
+            "motion_flag": True,
+            "has_acc": True,
+            "acc_axis_std_norm": 0.20,
+            "acc_mag_range": 0.40,
+            "ppg_processed_diff_std": 0.08,
+            "hr_agreement_bpm": 2.0,
+            "time_is_valid": True,
+            "time_confidence": 0.75,
+            "freq_peak_ratio": 2.8,
+        },
+        config={
+            "enabled": True,
+            "penalty_if_motion_flag": 0.02,
+            "quality_threshold": 0.55,
+        },
+        fallback_threshold=0.60,
+    )
+    assert decision["motion_flag"]
+    assert decision["motion_refined_quality_label"] == "good"
+    assert decision["motion_refined_validity_flag"]
+
+
+def test_apply_motion_aware_quality_decision_works_without_acc() -> None:
+    decision = apply_motion_aware_quality_decision(
+        base_signal_quality_score=0.62,
+        window_is_valid=True,
+        freq_is_valid=True,
+        features={
+            "motion_flag": False,
+            "has_acc": False,
+            "ppg_processed_diff_std": 0.10,
+            "hr_agreement_bpm": 3.0,
+            "time_is_valid": True,
+            "time_confidence": 0.60,
+            "freq_peak_ratio": 2.2,
+        },
+        config={"enabled": True, "quality_threshold": 0.55},
+        fallback_threshold=0.60,
+    )
+    assert 0.0 <= float(decision["motion_aux_score"]) <= 1.0
+    assert decision["motion_refined_validity_flag"]
+
+
+def test_apply_motion_aware_quality_decision_penalizes_high_noise_signals() -> None:
+    decision = apply_motion_aware_quality_decision(
+        base_signal_quality_score=0.70,
+        window_is_valid=True,
+        freq_is_valid=True,
+        features={
+            "motion_flag": True,
+            "has_acc": True,
+            "acc_axis_std_norm": 0.70,
+            "acc_mag_range": 2.50,
+            "ppg_processed_diff_std": 0.45,
+            "hr_agreement_bpm": 15.0,
+            "time_is_valid": True,
+            "time_confidence": 0.10,
+            "freq_peak_ratio": 1.0,
+        },
+        config={
+            "enabled": True,
+            "quality_threshold": 0.55,
+            "penalty_if_motion_flag": 0.03,
+            "penalty_if_high_acc_std": 0.03,
+            "penalty_if_high_acc_range": 0.03,
+            "penalty_if_high_diff_std": 0.04,
+            "penalty_if_low_peak_ratio": 0.03,
+            "penalty_if_low_time_confidence": 0.02,
+            "penalty_if_high_hr_disagreement": 0.04,
+        },
+        fallback_threshold=0.60,
+    )
+    assert float(decision["motion_refined_quality_score"]) < 0.55
+    assert decision["motion_refined_quality_label"] == "poor"
+    assert not decision["motion_refined_validity_flag"]
 
 
 def test_select_best_ml_threshold_prefers_low_mae_with_retention_floor() -> None:

@@ -247,6 +247,137 @@ def apply_rule_based_quality_decision(
     }
 
 
+def score_motion_awareness(
+    features: dict[str, float | str | bool],
+    config: dict[str, Any] | None = None,
+) -> float:
+    cfg = config or {}
+    weights = cfg.get("weights", {})
+    component_scores: list[tuple[float, float]] = []
+
+    diff_std_score = _linear_score(
+        float(features.get("ppg_processed_diff_std", math.nan)),
+        good=float(cfg.get("diff_std_good", 0.12)),
+        bad=float(cfg.get("diff_std_bad", 0.35)),
+        higher_is_better=False,
+    )
+    component_scores.append((float(weights.get("diff_std", 0.30)), diff_std_score))
+
+    agreement_score = _linear_score(
+        float(features.get("hr_agreement_bpm", math.nan)),
+        good=float(cfg.get("hr_agreement_good_bpm", 3.0)),
+        bad=float(cfg.get("hr_agreement_bad_bpm", 12.0)),
+        higher_is_better=False,
+    )
+    if not bool(features.get("time_is_valid", False)):
+        agreement_score = float(cfg.get("missing_time_agreement_score", 0.0))
+    component_scores.append((float(weights.get("hr_agreement", 0.25)), agreement_score))
+
+    time_conf_score = 0.0
+    if bool(features.get("time_is_valid", False)):
+        time_conf_score = _linear_score(
+            float(features.get("time_confidence", math.nan)),
+            good=float(cfg.get("time_confidence_good", 0.60)),
+            bad=float(cfg.get("time_confidence_bad", 0.25)),
+            higher_is_better=True,
+        )
+    component_scores.append((float(weights.get("time_confidence", 0.15)), time_conf_score))
+
+    peak_ratio_score = _linear_score(
+        float(features.get("freq_peak_ratio", math.nan)),
+        good=float(cfg.get("peak_ratio_good", 2.5)),
+        bad=float(cfg.get("peak_ratio_bad", 1.1)),
+        higher_is_better=True,
+    )
+    component_scores.append((float(weights.get("peak_ratio", 0.15)), peak_ratio_score))
+
+    if bool(features.get("has_acc", False)):
+        acc_std_score = _linear_score(
+            float(features.get("acc_axis_std_norm", math.nan)),
+            good=float(cfg.get("acc_std_good", 0.15)),
+            bad=float(cfg.get("acc_std_bad", 0.45)),
+            higher_is_better=False,
+        )
+        component_scores.append((float(weights.get("acc_std", 0.075)), acc_std_score))
+
+        acc_range_score = _linear_score(
+            float(features.get("acc_mag_range", math.nan)),
+            good=float(cfg.get("acc_range_good", 0.40)),
+            bad=float(cfg.get("acc_range_bad", 1.80)),
+            higher_is_better=False,
+        )
+        component_scores.append((float(weights.get("acc_range", 0.075)), acc_range_score))
+
+    total_weight = sum(weight for weight, _ in component_scores if weight > 0.0)
+    if total_weight <= 0.0:
+        raise ValueError("Stage 3 motion_refine weights must sum to a positive value.")
+
+    score = sum(weight * component for weight, component in component_scores if weight > 0.0) / total_weight
+    return _clip01(score)
+
+
+def apply_motion_aware_quality_decision(
+    *,
+    base_signal_quality_score: float,
+    window_is_valid: bool,
+    freq_is_valid: bool,
+    features: dict[str, float | str | bool],
+    config: dict[str, Any] | None = None,
+    fallback_threshold: float = 0.5,
+) -> dict[str, float | str | bool]:
+    cfg = config or {}
+    motion_aux_score = score_motion_awareness(features, cfg)
+    refined_score = _clip01(base_signal_quality_score)
+
+    if bool(cfg.get("enabled", False)):
+        refined_score += float(cfg.get("blend_weight", 0.20)) * (motion_aux_score - 0.5)
+
+        if motion_aux_score <= float(cfg.get("motion_aux_bad", 0.35)):
+            refined_score -= float(cfg.get("penalty_if_motion_flag", 0.03)) * 0.5
+        elif motion_aux_score >= float(cfg.get("motion_aux_good", 0.70)):
+            refined_score += float(cfg.get("blend_weight", 0.20)) * 0.10
+
+        if bool(features.get("motion_flag", False)):
+            refined_score -= float(cfg.get("penalty_if_motion_flag", 0.03))
+
+        if bool(features.get("has_acc", False)):
+            if _safe_numeric(features.get("acc_axis_std_norm", math.nan), default=math.nan) >= float(cfg.get("acc_std_bad", 0.45)):
+                refined_score -= float(cfg.get("penalty_if_high_acc_std", 0.03))
+            if _safe_numeric(features.get("acc_mag_range", math.nan), default=math.nan) >= float(cfg.get("acc_range_bad", 1.80)):
+                refined_score -= float(cfg.get("penalty_if_high_acc_range", 0.03))
+
+        if _safe_numeric(features.get("ppg_processed_diff_std", math.nan), default=math.nan) >= float(cfg.get("diff_std_bad", 0.35)):
+            refined_score -= float(cfg.get("penalty_if_high_diff_std", 0.04))
+        if _safe_numeric(features.get("freq_peak_ratio", math.nan), default=math.nan) <= float(cfg.get("peak_ratio_bad", 1.1)):
+            refined_score -= float(cfg.get("penalty_if_low_peak_ratio", 0.03))
+        if bool(features.get("time_is_valid", False)) and _safe_numeric(features.get("time_confidence", math.nan), default=math.nan) <= float(
+            cfg.get("time_confidence_bad", 0.25)
+        ):
+            refined_score -= float(cfg.get("penalty_if_low_time_confidence", 0.02))
+        if _safe_numeric(features.get("hr_agreement_bpm", math.nan), default=math.nan) >= float(cfg.get("hr_agreement_bad_bpm", 12.0)):
+            refined_score -= float(cfg.get("penalty_if_high_hr_disagreement", 0.04))
+
+    refined_score = _clip01(refined_score)
+    quality_threshold = cfg.get("quality_threshold", None)
+    if quality_threshold is None:
+        threshold = float(fallback_threshold)
+    else:
+        threshold = float(quality_threshold)
+        if not np.isfinite(threshold):
+            threshold = float(fallback_threshold)
+
+    label = "good" if refined_score >= threshold else "poor"
+    validity_flag = bool(window_is_valid and freq_is_valid and label == "good")
+    return {
+        "motion_aux_score": motion_aux_score,
+        "motion_refined_quality_score": refined_score,
+        "motion_refined_quality_label": label,
+        "motion_refined_validity_flag": validity_flag,
+        "motion_flag": bool(features.get("motion_flag", False)),
+        "quality_threshold": threshold,
+    }
+
+
 def compute_binary_classification_summary(
     target_labels: list[str],
     predicted_labels: list[str],
