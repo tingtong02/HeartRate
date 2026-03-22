@@ -1,0 +1,70 @@
+preprocess:
+  target_ppg_fs: 64
+  window_seconds: 8.0
+  step_seconds: 2.0
+
+eval:
+  random_seed: 42
+  test_size: 0.3
+  hr_band_bpm: [40, 180]
+
+stage1:
+  preprocess:
+    bandpass_low_hz: 0.6
+    bandpass_high_hz: 3.5
+    bandpass_order: 3
+    smooth_window_seconds: 0.20
+    smooth_polyorder: 2
+  frequency:
+    bandpass_low_hz: 0.6
+    bandpass_high_hz: 3.5
+    bandpass_order: 3
+    smooth_window_seconds: 0.20
+    smooth_polyorder: 2
+    extra_smoothing: false
+    welch_nperseg_seconds: 8.0
+    nfft_min: 2048
+    edge_margin_bpm: 5.0
+    min_peak_power_fraction: 0.10
+  time:
+    bandpass_low_hz: 0.6
+    bandpass_high_hz: 3.5
+    bandpass_order: 3
+    smooth_window_seconds: 0.20
+    smooth_polyorder: 2
+    extra_smoothing: true
+    envelope_smooth_window_seconds: 0.12
+    prominence_scale: 0.35
+    min_prominence: 0.05
+    min_peaks: 3
+    min_width_seconds: 0.08
+  fusion:
+    agreement_threshold_bpm: 6.0
+    conflict_threshold_bpm: 12.0
+
+stage3:
+  target:
+    good_error_bpm: 5.0
+    poor_error_bpm: 10.0
+  rule:
+    good_score_threshold: 0.55
+    peak_ratio_bad: 1.1
+    peak_ratio_good: 2.5
+    agreement_good_bpm: 3.0
+    agreement_bad_bpm: 12.0
+    missing_time_agreement_score: 0.0
+    diff_std_good: 0.12
+    diff_std_bad: 0.35
+    weights:
+      freq_confidence: 0.45
+      peak_ratio: 0.25
+      agreement: 0.15
+      time_confidence: 0.10
+      smoothness: 0.05
+  motion:
+    accel_std_threshold: 0.35
+    accel_range_threshold: 1.5
+
+output:
+  save_csv: true
+  output_dir: outputs

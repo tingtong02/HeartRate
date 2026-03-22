@@ -1,7 +1,7 @@
 # HeartRate_CNN
 
 HeartRate_CNN is a public-dataset PPG heart rate analysis project.  
-The current repository state now includes **Stage 2 enhancement-round beat / IBI / time-domain PRV-HRV work** on top of the Stage 0 and Stage 1 foundations.
+The current repository state now includes **a Stage 3 round-1 rule-based quality-gating baseline** on top of the Stage 0, Stage 1, and Stage 2 foundations.
 
 ## Current Status
 
@@ -23,19 +23,20 @@ Implemented so far:
 - a Stage 2 basic time-domain PRV/HRV feature path
 - a Stage 2 evaluation script that compares `baseline` and `enhanced` beat / IBI / feature pipelines on the same analysis windows
 - optional lightweight Stage 2 worst-window CSV summaries for error review
+- a Stage 3 round-1 rule-based quality-gating baseline for `stage1_frequency`
+- a Stage 3 evaluation script that compares ungated and quality-gated `stage1_frequency` on the same Stage 1 windows
 - basic evaluation metrics
 - smoke test and pytest coverage
 
 Still not included:
 
 - CNN / TCN / deep learning training
-- SQI
 - event detection
 - respiration estimation
 - frequency-domain or nonlinear HRV features
 - irregular pulse screening
 
-Stage 3 has **not** started yet.
+Current Stage 3 scope is still limited to a narrow round-1 SQI / quality-gating baseline.
 
 ## Environment Setup
 
@@ -142,6 +143,20 @@ python scripts/run_stage2_baseline.py \
   --dataset-config configs/datasets/wesad.local.yaml
 ```
 
+Run the Stage 3 quality-gating baseline on PPG-DaLiA:
+
+```bash
+python scripts/run_stage3_baseline.py \
+  --dataset-config configs/datasets/ppg_dalia.local.yaml
+```
+
+Run the Stage 3 quality-gating baseline on WESAD:
+
+```bash
+python scripts/run_stage3_baseline.py \
+  --dataset-config configs/datasets/wesad.local.yaml
+```
+
 To reproduce the Stage 2 evaluation:
 
 - create local dataset configs the same way as Stage 0 / Stage 1
@@ -156,6 +171,13 @@ To reproduce the Stage 1 comparison fairly:
 - keep the default subject-wise split seed unless you are intentionally running a new comparison
 - compare all four methods from the same `run_stage1_baseline.py` execution
 - use the generated `outputs/{dataset}_stage1_metrics.csv` as the source of record
+
+To reproduce the Stage 3 round-1 gating comparison:
+
+- use the same dataset config style as Stage 0 / Stage 1
+- keep the default subject-wise split seed unless you are intentionally running a new comparison
+- run `run_stage3_baseline.py` once per dataset
+- use `outputs/{dataset}_stage3_metrics.csv` as the source of record
 
 ## Stage 1 Results
 
@@ -196,6 +218,23 @@ Stage 2 still does not include:
 - frequency-domain HRV
 - nonlinear HRV
 - deep learning models
+
+## Stage 3 Scope
+
+Stage 3 round 1 currently includes:
+
+- window-level quality scoring for Stage 1 windows
+- rule-based quality gating for `stage1_frequency`
+- an auxiliary ACC-based `motion_flag`
+- gated-vs-ungated HR comparison against ECG-backed reference HR
+
+Stage 3 round 1 does not include:
+
+- event detection
+- irregular pulse screening
+- respiration
+- deep learning training
+- GPU-dependent methods
 
 ## Stage 2 Results
 
@@ -240,6 +279,7 @@ For more detail, see:
 - Stage 1 is still a lightweight classical-signal baseline system, not a final robust estimator.
 - Stage 1 frequency is currently the best-performing path; fusion is mainly improving coverage and robustness relative to Stage 0, not surpassing the frequency chain yet.
 - Stage 2 enhancement round is still limited to beat / IBI / basic time-domain PRV-HRV only.
+- Stage 3 round 1 is still a narrow rule-based SQI / quality-gating baseline centered on `stage1_frequency`.
 - Stage 2 is more reliable for mean / median IBI style summaries than for variability features such as `sdnn_ms`, `rmssd_ms`, and `ibi_cv`.
 - Current baseline quality is intended for reproducible validation, not final performance.
 - Dataset configs in the repository are templates only; local paths must be set in ignored `*.local.yaml` files.
