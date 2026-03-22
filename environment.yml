@@ -13,4 +13,5 @@ dependencies:
   - h5py
   - joblib
   - matplotlib
+  - pywavelets
   - pytest

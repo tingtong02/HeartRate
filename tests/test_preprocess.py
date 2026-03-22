@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from heart_rate_cnn.preprocess import build_window_samples, resample_signal
+from heart_rate_cnn.preprocess import build_window_samples, dwt_denoise_ppg, resample_signal
 from heart_rate_cnn.split import train_test_subject_split
 from heart_rate_cnn.types import SubjectRecord
 
@@ -50,3 +50,21 @@ def test_subject_split_has_no_overlap() -> None:
     split = train_test_subject_split(["S1", "S2", "S3", "S4"], test_size=0.5, random_seed=7)
     assert set(split.train_subjects).isdisjoint(split.test_subjects)
     assert set(split.train_subjects + split.test_subjects) == {"S1", "S2", "S3", "S4"}
+
+
+def test_dwt_denoise_ppg_keeps_length_and_finite_values() -> None:
+    time = np.arange(0.0, 8.0, 1.0 / 64.0)
+    signal = np.sin(2 * np.pi * 1.2 * time) + 0.15 * np.random.default_rng(7).normal(size=time.shape[0])
+    denoised = dwt_denoise_ppg(signal, wavelet="db4", max_level=4, threshold_mode="soft", threshold_scale=1.0)
+    assert denoised.shape == signal.shape
+    assert np.all(np.isfinite(denoised))
+
+
+def test_dwt_denoise_ppg_reduces_high_frequency_energy() -> None:
+    time = np.arange(0.0, 8.0, 1.0 / 64.0)
+    clean = np.sin(2 * np.pi * 1.2 * time)
+    noisy = clean + 0.2 * np.sin(2 * np.pi * 12.0 * time)
+    denoised = dwt_denoise_ppg(noisy, wavelet="db4", max_level=4, threshold_mode="soft", threshold_scale=1.0)
+    noisy_diff_std = float(np.std(np.diff(noisy)))
+    denoised_diff_std = float(np.std(np.diff(denoised)))
+    assert denoised_diff_std < noisy_diff_std

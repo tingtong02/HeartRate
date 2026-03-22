@@ -26,6 +26,7 @@ Implemented so far:
 - a Stage 3 round-1 rule-based quality-gating baseline for `stage1_frequency`
 - a Stage 3 evaluation script that compares ungated and quality-gated `stage1_frequency` on the same Stage 1 windows
 - a Stage 3 enhancement path with lightweight ML gating and motion-aware strengthened comparison on the same Stage 1 windows
+- a Stage 3B2 DWT-denoised comparison branch inside the same Stage 3 enhanced runner
 - basic evaluation metrics
 - smoke test and pytest coverage
 
@@ -256,6 +257,7 @@ Stage 3 enhancement round currently adds:
 - fair comparison of ungated, rule-gated, and ML-gated `stage1_frequency`
 - threshold / retention tradeoff analysis and operating-point summary CSVs for the ML-gated path
 - a motion-aware strengthened comparison path that refines the existing ML-gated quality score using optional ACC summaries and PPG instability features
+- a DWT-denoised comparison path that re-runs the same Stage 1 / Stage 3 enhanced evaluation flow on wavelet-denoised windows
 
 Stage 3 round 1 does not include:
 
@@ -309,6 +311,7 @@ For more detail, see:
 - Stage 1 frequency is currently the best-performing path; fusion is mainly improving coverage and robustness relative to Stage 0, not surpassing the frequency chain yet.
 - Stage 2 enhancement round is still limited to beat / IBI / basic time-domain PRV-HRV only.
 - Stage 3 is still a narrow window-level SQI / quality-gating track centered on `stage1_frequency`, not full Stage 3 closure.
+- Stage 3B2 adds `PyWavelets` only for a single DWT comparison branch; it does not introduce SSA, adaptive filtering, beat-level SQI, or deep learning denoising.
 - Stage 2 is more reliable for mean / median IBI style summaries than for variability features such as `sdnn_ms`, `rmssd_ms`, and `ibi_cv`.
 - Current baseline quality is intended for reproducible validation, not final performance.
 - Dataset configs in the repository are templates only; local paths must be set in ignored `*.local.yaml` files.

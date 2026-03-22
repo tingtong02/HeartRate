@@ -14,6 +14,7 @@ This round includes:
 - a lightweight ML quality path using `LogisticRegression`
 - train-only threshold selection and threshold / retention operating-point analysis
 - a Stage 3B1 motion-aware strengthened comparison layered on top of the existing ML-gated path
+- a Stage 3B2 DWT-denoised comparison branch layered on top of the same Stage 3 enhanced evaluation flow
 
 This round does not include:
 
@@ -105,12 +106,14 @@ These tables compare:
 - rule-based Stage 3 gating
 - ML-based Stage 3 gating using `LogisticRegression`
 - motion-aware strengthened Stage 3 gating built on top of the same ML quality score
+- DWT-denoised ML gating built from the same Stage 1 window pipeline
 
 The threshold-analysis outputs stay strictly within Stage 3:
 
 - `*_threshold_sweep.csv` records train-only threshold sweeps and report-only test sweeps
 - `*_operating_points.csv` records the selected threshold, reference operating points, and a compact status such as `stable`, `fragile`, or `suboptimal`
 - the predictions and metrics CSVs also include a motion-aware strengthened path for side-by-side comparison inside the same Stage 3 enhancement run
+- threshold-analysis tables include a `branch` column so raw ML and DWT ML operating points can be compared inside the same CSV family
 
 ## Notes
 
@@ -119,4 +122,5 @@ The threshold-analysis outputs stay strictly within Stage 3:
 - `motion_flag` is diagnostic in round 1 and does not independently override the main quality decision.
 - The enhancement round uses the same pseudo-labels as the rule baseline and selects the ML gating threshold on train subjects only.
 - Stage 3B1 does not add denoising, adaptive filtering, beat-level SQI, or a new model family; it only strengthens motion/noise-related reasoning within the existing Stage 3A framework.
+- Stage 3B2 adds a single DWT denoising branch using `PyWavelets`; it does not add SSA, adaptive filtering, beat-level SQI, or deep-learning denoising.
 - Test-set threshold rows are for reporting only and are not used to choose the deployed threshold.

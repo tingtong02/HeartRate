@@ -97,6 +97,13 @@ stage3:
       peak_ratio: 0.15
       acc_std: 0.075
       acc_range: 0.075
+  denoise:
+    enabled: true
+    method: dwt
+    wavelet: db4
+    max_level: 4
+    threshold_mode: soft
+    threshold_scale: 1.0
   ml:
     model_name: logistic_regression
     c_value: 1.0

@@ -66,6 +66,49 @@ def smooth_signal_savgol(
     return signal.savgol_filter(array, window_length=window_length, polyorder=polyorder)
 
 
+def dwt_denoise_ppg(
+    samples: np.ndarray,
+    *,
+    wavelet: str = "db4",
+    max_level: int = 4,
+    threshold_mode: str = "soft",
+    threshold_scale: float = 1.0,
+) -> np.ndarray:
+    array = np.asarray(samples, dtype=float).reshape(-1)
+    if array.size < 8:
+        return array.copy()
+    if max_level < 1:
+        return array.copy()
+
+    import pywt
+
+    wavelet_obj = pywt.Wavelet(wavelet)
+    usable_level = pywt.dwt_max_level(array.size, wavelet_obj.dec_len)
+    level = min(int(max_level), int(usable_level))
+    if level < 1:
+        return array.copy()
+
+    coeffs = pywt.wavedec(array, wavelet_obj, level=level, mode="symmetric")
+    detail_coeffs = coeffs[1:]
+    if not detail_coeffs:
+        return array.copy()
+
+    finest_detail = np.asarray(detail_coeffs[-1], dtype=float)
+    sigma = float(np.median(np.abs(finest_detail)) / 0.6745) if finest_detail.size else 0.0
+    if not np.isfinite(sigma) or sigma <= 1e-12:
+        return array.copy()
+
+    threshold = float(threshold_scale) * sigma * np.sqrt(2.0 * np.log(max(array.size, 2)))
+    denoised_coeffs = [coeffs[0]]
+    denoised_coeffs.extend(pywt.threshold(detail, value=threshold, mode=threshold_mode) for detail in detail_coeffs)
+    reconstructed = pywt.waverec(denoised_coeffs, wavelet_obj, mode="symmetric")
+    if reconstructed.size > array.size:
+        reconstructed = reconstructed[: array.size]
+    elif reconstructed.size < array.size:
+        reconstructed = np.pad(reconstructed, (0, array.size - reconstructed.size), mode="edge")
+    return np.asarray(reconstructed, dtype=float)
+
+
 def preprocess_ppg_stage1(
     samples: np.ndarray,
     fs: float,
