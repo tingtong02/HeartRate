@@ -143,7 +143,7 @@ Current status:
 - Stage 2 enhancement-round results improved the highest-priority metrics on both PPG-DaLiA and WESAD: beat F1 increased and IBI RMSE decreased relative to the Stage 2 baseline variant
 - Mean / median IBI style outputs are now clearly more usable than in the first round, while variability features still benefit from further beat detection and IBI cleaning improvements
 - Stage 2 is now strong enough to serve as the foundation for Stage 3, so deeper Stage 2 tuning is lower priority than beginning the next stage
-- Stage 3 and later stages have not started yet
+- Stage 3 has started through a narrow quality-aware branch while later stages remain unstarted
 
 Algorithms:
 - Adaptive peak detection
@@ -168,6 +168,15 @@ Acceptance criteria:
 ### Stage 3: SQI and motion robustness
 Goals:
 - Make the system quality-aware and robust under motion/noise
+
+Current status:
+- Stage 3A window-level SQI / quality gating is implemented and validated
+- Stage 3B1 motion-aware strengthening and Stage 3B2 DWT denoising are implemented as exploratory comparison branches
+- Stage 3C1 minimum viable beat-level quality proxy is implemented and validated through the Stage 2 pipeline outputs
+- Stage 3C1.1 threshold / retention refinement is implemented as analysis-only operating-point comparison
+- `enhanced_beat_quality` remains the official baseline operating point for the current beat-quality branch
+- `enhanced_beat_quality_refined` is analysis-only and is not the new default threshold
+- Full Stage 3 remains incomplete: beat-level SQI closure, robust HR update policy, adaptive filtering, and other roadmap items below are still not fully implemented
 
 Algorithms:
 - Window-level SQI classifier

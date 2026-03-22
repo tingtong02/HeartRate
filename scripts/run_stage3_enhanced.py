@@ -19,16 +19,19 @@ from heart_rate_cnn.stage1_hr import (
     fuse_hr_estimates,
 )
 from heart_rate_cnn.stage3_quality import (
+    apply_robust_hr_policy_sequence,
     apply_ml_quality_decision,
     apply_motion_aware_quality_decision,
     apply_rule_based_quality_decision,
     build_refined_threshold_grid,
     build_quality_target,
+    compute_local_beat_fallback_hr,
     compute_binary_classification_summary,
     extract_quality_features,
     evaluate_ml_threshold_grid,
     fit_quality_logistic_regression,
     predict_quality_logistic_regression,
+    summarize_robust_hr_policy_behavior,
     summarize_operating_point_status,
     summarize_threshold_selection,
 )
@@ -123,6 +126,11 @@ def _build_stage3_rows(
                 features=feature_row,
                 config=stage3_cfg["rule"],
             )
+            robust_policy_cfg = stage3_cfg.get("robust_hr_policy", {})
+            beat_fallback_row = compute_local_beat_fallback_hr(
+                analysis_window,
+                config=robust_policy_cfg,
+            )
             rows.append(
                 {
                     "branch": branch,
@@ -145,6 +153,7 @@ def _build_stage3_rows(
                     if bool(rule_row["validity_flag"])
                     else math.nan,
                     "rule_gated_is_valid": bool(analysis_window.is_valid and rule_row["validity_flag"]),
+                    **beat_fallback_row,
                 }
             )
     return rows
@@ -525,6 +534,14 @@ def main() -> None:
             eval_frame["ungated_is_valid"].tolist(),
         )
     ]
+
+    robust_policy_frame = apply_robust_hr_policy_sequence(
+        eval_frame,
+        config=stage3_cfg.get("robust_hr_policy", {}),
+    )
+    for column in robust_policy_frame.columns:
+        eval_frame[column] = robust_policy_frame[column].tolist()
+
     rule_test_mask = (
         eval_frame["ref_hr_bpm"].notna()
         & eval_frame["rule_gated_pred_hr_bpm"].notna()
@@ -723,6 +740,7 @@ def main() -> None:
             method="stage3_dwt_ml",
             selected_threshold=dwt_selected_threshold if np.isfinite(dwt_selected_threshold) else None,
         ) if "dwt_ml_signal_quality_label" in eval_frame.columns else None,
+        summarize_robust_hr_policy_behavior(eval_frame),
         _summarize_hr_method(
             eval_frame,
             pred_col="ungated_pred_hr_bpm",
@@ -761,6 +779,13 @@ def main() -> None:
             ungated_valid_count=ungated_valid_count,
             selected_threshold=dwt_selected_threshold if np.isfinite(dwt_selected_threshold) else None,
         ) if "dwt_ml_gated_pred_hr_bpm" in eval_frame.columns else None,
+        _summarize_hr_method(
+            eval_frame,
+            pred_col="robust_hr_bpm",
+            valid_col="robust_hr_is_valid",
+            method="robust_stage3c2_policy",
+            ungated_valid_count=ungated_valid_count,
+        ),
     ]
     metrics_frame = pd.DataFrame([row for row in metrics_rows if row is not None])
 
@@ -828,10 +853,31 @@ def main() -> None:
             value = row[key]
             print(f"  {key}: {value:.4f}" if isinstance(value, float) and not math.isnan(value) else f"  {key}: {value}")
 
-    for method in ("ungated_stage1_frequency", "gated_stage3_rule", "gated_stage3_ml_logreg", "gated_stage3_motion_refined", "gated_stage3_dwt_ml"):
-        if method not in metrics_frame["method"].tolist():
+    if "robust_stage3c2_policy" in metrics_frame["method"].tolist():
+        policy_row = metrics_frame.loc[
+            (metrics_frame["method"] == "robust_stage3c2_policy") & (metrics_frame["task"] == "policy_summary")
+        ].iloc[0].to_dict()
+        print("policy summary: robust_stage3c2_policy")
+        for key in (
+            "frequency_fraction",
+            "beat_fallback_fraction",
+            "hold_previous_fraction",
+            "reject_fraction",
+            "avg_abs_jump_bpm",
+            "hold_count",
+            "subject_boundary_reset_count",
+            "fallback_insufficient_count",
+        ):
+            value = policy_row.get(key, math.nan)
+            print(f"  {key}: {value:.4f}" if isinstance(value, float) and not math.isnan(value) else f"  {key}: {value}")
+
+    for method in ("ungated_stage1_frequency", "gated_stage3_rule", "gated_stage3_ml_logreg", "gated_stage3_motion_refined", "gated_stage3_dwt_ml", "robust_stage3c2_policy"):
+        method_subset = metrics_frame.loc[
+            (metrics_frame["method"] == method) & (metrics_frame["task"] == "hr_comparison")
+        ]
+        if method_subset.empty:
             continue
-        row = metrics_frame.loc[metrics_frame["method"] == method].iloc[0].to_dict()
+        row = method_subset.iloc[0].to_dict()
         print(f"hr method: {method}")
         for key in ("mae", "rmse", "mape", "pearson_r", "num_valid_windows", "retention_ratio"):
             value = row[key]

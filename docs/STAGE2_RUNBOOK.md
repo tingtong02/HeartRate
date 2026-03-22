@@ -79,6 +79,13 @@ Stage 2 writes:
 Use `outputs/{dataset}_stage2_metrics.csv` as the primary summary file when reproducing Stage 2 results.  
 If `stage2.debug.save_error_cases: true`, the extra CSV contains only the worst few analysis windows per variant as a numeric summary. It does not create images or a separate visualization system.
 
+For the beat-quality branch:
+
+- `outputs/{dataset}_stage2_beat_quality.csv` is the primary beat-level inspection table
+- `outputs/{dataset}_stage2_beat_quality_sweep.csv` is the threshold / retention tradeoff analysis table
+- `enhanced_beat_quality` is the official baseline operating point at the configured threshold
+- `enhanced_beat_quality_refined` is analysis-only and must not be treated as the new default threshold
+
 ## Real Enhancement-Round Results
 
 `PPG-DaLiA`
@@ -118,6 +125,9 @@ Current interpretation:
 
 - Beat detection is direct peak finding plus local refinement, not a Hilbert-envelope-first design.
 - The feature set is still strictly time-domain only.
-- The beat-level quality proxy is rule-based and intended as a minimum viable quality layer, not full beat-level SQI closure.
-- `enhanced_beat_quality` remains the official baseline operating point at the configured threshold.
+- The beat-level quality proxy is implemented and validated as a minimum viable rule-based quality layer, not full beat-level SQI closure.
+- Stage 3C1 adds per-beat `beat_quality_score`, `beat_quality_label`, and `beat_is_kept_by_quality` outputs plus beat-level CSV export.
+- Stage 3C1.1 adds threshold / retention tradeoff analysis and an additive `enhanced_beat_quality_refined` comparison row.
+- `enhanced_beat_quality` remains the official baseline operating point at the configured threshold `0.55`.
 - `enhanced_beat_quality_refined` is analysis-only and exists to make the threshold/retention tradeoff explicit; it is not a silently adopted new default.
+- Current conclusion: the score is reproducible and decision-useful, the default threshold is conservative, and the refined operating point is useful for analysis but is not adopted as the new default.

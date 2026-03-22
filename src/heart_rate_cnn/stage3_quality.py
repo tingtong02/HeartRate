@@ -11,6 +11,13 @@ from sklearn.preprocessing import StandardScaler
 
 from heart_rate_cnn.metrics import compute_hr_metrics, compute_precision_recall_f1
 from heart_rate_cnn.preprocess import preprocess_ppg_stage1
+from heart_rate_cnn.stage2_beat import (
+    clean_ibi_series,
+    compute_beat_quality_proxy,
+    compute_time_domain_prv_features,
+    detect_beats_in_window,
+    extract_ibi_from_beats,
+)
 from heart_rate_cnn.types import WindowSample
 
 
@@ -560,6 +567,337 @@ def apply_ml_quality_decision(
         "signal_quality_label": label,
         "validity_flag": validity_flag,
         "motion_flag": motion_flag,
+    }
+
+
+def compute_local_beat_fallback_hr(
+    window: WindowSample,
+    *,
+    config: dict[str, Any] | None = None,
+) -> dict[str, float | bool]:
+    cfg = config or {}
+    if not bool(cfg.get("fallback_enabled", True)):
+        return {
+            "beat_fallback_hr_bpm": math.nan,
+            "beat_fallback_available": False,
+            "beat_fallback_num_beats": 0.0,
+            "beat_fallback_num_clean_ibi": 0.0,
+            "beat_fallback_kept_ratio": math.nan,
+            "beat_fallback_used_quality_filter": False,
+            "beat_fallback_reason": "fallback_disabled",
+        }
+
+    beat_cfg = {"variant_mode": str(cfg.get("fallback_variant_mode", "enhanced"))}
+    ibi_cfg = {
+        "variant_mode": str(cfg.get("fallback_variant_mode", "enhanced")),
+        "min_ibi_s": float(cfg.get("fallback_min_ibi_s", 0.33)),
+        "max_ibi_s": float(cfg.get("fallback_max_ibi_s", 1.5)),
+        "local_median_radius": int(cfg.get("fallback_local_median_radius", 2)),
+        "max_deviation_ratio": float(cfg.get("fallback_max_deviation_ratio", 0.25)),
+        "adjacent_jump_ratio": float(cfg.get("fallback_adjacent_jump_ratio", 0.22)),
+        "jump_anchor_ratio": float(cfg.get("fallback_jump_anchor_ratio", 0.12)),
+        "short_series_threshold": int(cfg.get("fallback_short_series_threshold", 5)),
+        "min_clean_ibi": int(cfg.get("fallback_min_clean_ibi", 3)),
+    }
+    raw_pred_beats = detect_beats_in_window(window.ppg, fs=window.ppg_fs, config=beat_cfg)
+    if raw_pred_beats.size == 0:
+        return {
+            "beat_fallback_hr_bpm": math.nan,
+            "beat_fallback_available": False,
+            "beat_fallback_num_beats": 0.0,
+            "beat_fallback_num_clean_ibi": 0.0,
+            "beat_fallback_kept_ratio": math.nan,
+            "beat_fallback_used_quality_filter": bool(cfg.get("fallback_use_beat_quality_filter", True)),
+            "beat_fallback_reason": "no_beats",
+        }
+
+    pred_beats = raw_pred_beats
+    kept_ratio = 1.0
+    used_quality_filter = False
+    if bool(cfg.get("fallback_use_beat_quality_filter", True)):
+        used_quality_filter = True
+        quality_cfg = {
+            "good_score_threshold": float(cfg.get("fallback_beat_quality_threshold", 0.55)),
+            "plausibility_margin_s": float(cfg.get("fallback_plausibility_margin_s", 0.08)),
+            "jump_good_ratio": float(cfg.get("fallback_jump_good_ratio", 0.08)),
+            "jump_bad_ratio": float(cfg.get("fallback_jump_bad_ratio", 0.25)),
+            "crowding_good_scale": float(cfg.get("fallback_crowding_good_scale", 1.10)),
+            "missing_ibi_score": float(cfg.get("fallback_missing_ibi_score", 0.50)),
+            "weights": {
+                "base_peak_quality": float(cfg.get("fallback_weight_base_peak_quality", 0.60)),
+                "ibi_plausibility": float(cfg.get("fallback_weight_ibi_plausibility", 0.20)),
+                "ibi_stability": float(cfg.get("fallback_weight_ibi_stability", 0.10)),
+                "crowding": float(cfg.get("fallback_weight_crowding", 0.05)),
+                "clean_pair_bonus": float(cfg.get("fallback_weight_clean_pair_bonus", 0.05)),
+            },
+        }
+        beat_quality = compute_beat_quality_proxy(
+            window.ppg,
+            raw_pred_beats,
+            fs=window.ppg_fs,
+            beat_config=beat_cfg,
+            ibi_config=ibi_cfg,
+            quality_config=quality_cfg,
+        )
+        keep_mask = np.asarray(beat_quality["beat_is_kept_by_quality"], dtype=bool)
+        kept_ratio = float(np.mean(keep_mask)) if keep_mask.size else 0.0
+        pred_beats = raw_pred_beats[keep_mask]
+
+    num_beats = int(pred_beats.size)
+    min_beats = int(cfg.get("fallback_min_beats", 4))
+    if num_beats < min_beats:
+        return {
+            "beat_fallback_hr_bpm": math.nan,
+            "beat_fallback_available": False,
+            "beat_fallback_num_beats": float(num_beats),
+            "beat_fallback_num_clean_ibi": 0.0,
+            "beat_fallback_kept_ratio": kept_ratio,
+            "beat_fallback_used_quality_filter": used_quality_filter,
+            "beat_fallback_reason": "insufficient_beats",
+        }
+
+    pred_ibi_s = extract_ibi_from_beats(pred_beats, fs=window.ppg_fs)
+    pred_clean = clean_ibi_series(pred_ibi_s, ibi_cfg)
+    num_clean_ibi = int(np.asarray(pred_clean["ibi_clean_s"], dtype=float).size)
+    if num_clean_ibi < int(cfg.get("fallback_min_clean_ibi", 3)):
+        return {
+            "beat_fallback_hr_bpm": math.nan,
+            "beat_fallback_available": False,
+            "beat_fallback_num_beats": float(num_beats),
+            "beat_fallback_num_clean_ibi": float(num_clean_ibi),
+            "beat_fallback_kept_ratio": kept_ratio,
+            "beat_fallback_used_quality_filter": used_quality_filter,
+            "beat_fallback_reason": "insufficient_clean_ibi",
+        }
+    if used_quality_filter and kept_ratio < float(cfg.get("fallback_min_quality_kept_ratio", 0.35)):
+        return {
+            "beat_fallback_hr_bpm": math.nan,
+            "beat_fallback_available": False,
+            "beat_fallback_num_beats": float(num_beats),
+            "beat_fallback_num_clean_ibi": float(num_clean_ibi),
+            "beat_fallback_kept_ratio": kept_ratio,
+            "beat_fallback_used_quality_filter": used_quality_filter,
+            "beat_fallback_reason": "low_kept_ratio",
+        }
+
+    features = compute_time_domain_prv_features(
+        np.asarray(pred_clean["ibi_clean_s"], dtype=float),
+        num_beats=num_beats,
+        num_ibi_raw=pred_ibi_s.size,
+        num_ibi_clean=num_clean_ibi,
+    )
+    fallback_hr_bpm = _safe_numeric(features.get("mean_hr_bpm_from_ibi", math.nan), default=math.nan)
+    if (
+        not np.isfinite(fallback_hr_bpm)
+        or fallback_hr_bpm < float(cfg.get("fallback_hr_min_bpm", 45.0))
+        or fallback_hr_bpm > float(cfg.get("fallback_hr_max_bpm", 180.0))
+    ):
+        return {
+            "beat_fallback_hr_bpm": math.nan,
+            "beat_fallback_available": False,
+            "beat_fallback_num_beats": float(num_beats),
+            "beat_fallback_num_clean_ibi": float(num_clean_ibi),
+            "beat_fallback_kept_ratio": kept_ratio,
+            "beat_fallback_used_quality_filter": used_quality_filter,
+            "beat_fallback_reason": "fallback_hr_out_of_bounds",
+        }
+
+    return {
+        "beat_fallback_hr_bpm": float(fallback_hr_bpm),
+        "beat_fallback_available": True,
+        "beat_fallback_num_beats": float(num_beats),
+        "beat_fallback_num_clean_ibi": float(num_clean_ibi),
+        "beat_fallback_kept_ratio": kept_ratio,
+        "beat_fallback_used_quality_filter": used_quality_filter,
+        "beat_fallback_reason": "available",
+    }
+
+
+def apply_robust_hr_policy_sequence(
+    frame: pd.DataFrame,
+    *,
+    config: dict[str, Any] | None = None,
+) -> pd.DataFrame:
+    cfg = config or {}
+    if frame.empty:
+        return pd.DataFrame(
+            columns=[
+                "robust_hr_bpm",
+                "robust_hr_is_valid",
+                "robust_hr_source",
+                "robust_hr_action",
+                "previous_reliable_hr_bpm",
+                "hold_applied",
+                "hold_age_windows",
+                "hr_jump_bpm_from_previous",
+                "policy_reason_code",
+                "subject_boundary_reset",
+            ]
+        )
+
+    ordered = frame.copy()
+    ordered["_original_index"] = ordered.index
+    ordered = ordered.sort_values(by=["subject_id", "window_index", "start_time_s"]).reset_index(drop=True)
+
+    direct_quality_threshold = float(cfg.get("direct_quality_threshold", 0.55))
+    direct_jump_guard_bpm = float(cfg.get("direct_jump_guard_bpm", 20.0))
+    hold_enabled = bool(cfg.get("hold_enabled", True))
+    max_hold_windows = int(cfg.get("max_hold_windows", 1))
+    hold_quality_floor = float(cfg.get("hold_quality_floor", 0.45))
+    hold_jump_guard_bpm = float(cfg.get("hold_jump_guard_bpm", 12.0))
+    reset_at_subject_boundary = bool(cfg.get("hold_subject_boundary_reset", True))
+
+    previous_subject_id: str | None = None
+    previous_reliable_hr_bpm = math.nan
+    gap_since_reliable = 0
+
+    decisions: list[dict[str, float | str | bool]] = []
+    for row in ordered.to_dict(orient="records"):
+        subject_id = str(row["subject_id"])
+        subject_boundary_reset = bool(previous_subject_id is not None and subject_id != previous_subject_id and reset_at_subject_boundary)
+        if subject_boundary_reset:
+            previous_reliable_hr_bpm = math.nan
+            gap_since_reliable = 0
+
+        freq_hr = _safe_numeric(row.get("ungated_pred_hr_bpm", math.nan), default=math.nan)
+        freq_is_valid = bool(row.get("ungated_is_valid", False))
+        ml_validity_flag = bool(row.get("ml_validity_flag", False))
+        ml_score = _safe_numeric(row.get("ml_signal_quality_score", math.nan), default=math.nan)
+        fallback_hr = _safe_numeric(row.get("beat_fallback_hr_bpm", math.nan), default=math.nan)
+        fallback_available = bool(row.get("beat_fallback_available", False)) and np.isfinite(fallback_hr)
+
+        direct_candidate = bool(
+            freq_is_valid
+            and ml_validity_flag
+            and np.isfinite(freq_hr)
+            and np.isfinite(ml_score)
+            and ml_score >= direct_quality_threshold
+        )
+
+        action = "reject"
+        source = "none"
+        robust_hr_bpm = math.nan
+        robust_hr_is_valid = False
+        hold_applied = False
+        hold_age_windows = 0.0
+        reason_code = "reject_no_reliable_source"
+        previous_for_output = previous_reliable_hr_bpm if np.isfinite(previous_reliable_hr_bpm) else math.nan
+
+        if direct_candidate:
+            use_direct = True
+            if np.isfinite(previous_reliable_hr_bpm) and abs(freq_hr - previous_reliable_hr_bpm) > direct_jump_guard_bpm:
+                if fallback_available and abs(fallback_hr - previous_reliable_hr_bpm) < abs(freq_hr - previous_reliable_hr_bpm):
+                    use_direct = False
+                elif hold_enabled and gap_since_reliable < max_hold_windows and ml_score >= hold_quality_floor:
+                    action = "hold"
+                    source = "hold_previous"
+                    robust_hr_bpm = float(previous_reliable_hr_bpm)
+                    robust_hr_is_valid = True
+                    hold_applied = True
+                    hold_age_windows = float(gap_since_reliable + 1)
+                    reason_code = "jump_guard_hold"
+                else:
+                    reason_code = "direct_update_jump_guard_override"
+
+            if use_direct and not robust_hr_is_valid:
+                action = "direct_update"
+                source = "frequency"
+                robust_hr_bpm = float(freq_hr)
+                robust_hr_is_valid = True
+                reason_code = "quality_good_direct"
+        elif fallback_available:
+            if np.isfinite(previous_reliable_hr_bpm) and abs(fallback_hr - previous_reliable_hr_bpm) > hold_jump_guard_bpm:
+                if hold_enabled and gap_since_reliable < max_hold_windows and np.isfinite(ml_score) and ml_score >= hold_quality_floor:
+                    action = "hold"
+                    source = "hold_previous"
+                    robust_hr_bpm = float(previous_reliable_hr_bpm)
+                    robust_hr_is_valid = True
+                    hold_applied = True
+                    hold_age_windows = float(gap_since_reliable + 1)
+                    reason_code = "fallback_jump_guard_hold"
+                else:
+                    reason_code = "fallback_jump_guard_reject"
+            else:
+                action = "fallback_update"
+                source = "beat_fallback"
+                robust_hr_bpm = float(fallback_hr)
+                robust_hr_is_valid = True
+                reason_code = "beat_fallback_used"
+        elif hold_enabled and np.isfinite(previous_reliable_hr_bpm) and gap_since_reliable < max_hold_windows and np.isfinite(ml_score) and ml_score >= hold_quality_floor:
+            action = "hold"
+            source = "hold_previous"
+            robust_hr_bpm = float(previous_reliable_hr_bpm)
+            robust_hr_is_valid = True
+            hold_applied = True
+            hold_age_windows = float(gap_since_reliable + 1)
+            reason_code = "short_horizon_hold"
+
+        if robust_hr_is_valid:
+            hr_jump_bpm_from_previous = (
+                float(abs(robust_hr_bpm - previous_reliable_hr_bpm))
+                if np.isfinite(previous_reliable_hr_bpm)
+                else math.nan
+            )
+            if action in ("direct_update", "fallback_update"):
+                previous_reliable_hr_bpm = float(robust_hr_bpm)
+                gap_since_reliable = 0
+            elif action == "hold":
+                gap_since_reliable += 1
+        else:
+            hr_jump_bpm_from_previous = math.nan
+            gap_since_reliable += 1
+
+        decisions.append(
+            {
+                "_original_index": int(row["_original_index"]),
+                "robust_hr_bpm": float(robust_hr_bpm) if robust_hr_is_valid else math.nan,
+                "robust_hr_is_valid": bool(robust_hr_is_valid),
+                "robust_hr_source": source,
+                "robust_hr_action": action,
+                "previous_reliable_hr_bpm": float(previous_for_output) if np.isfinite(previous_for_output) else math.nan,
+                "hold_applied": bool(hold_applied),
+                "hold_age_windows": float(hold_age_windows),
+                "hr_jump_bpm_from_previous": hr_jump_bpm_from_previous,
+                "policy_reason_code": reason_code,
+                "subject_boundary_reset": bool(subject_boundary_reset),
+            }
+        )
+        previous_subject_id = subject_id
+
+    decision_frame = pd.DataFrame(decisions).sort_values("_original_index").drop(columns=["_original_index"]).reset_index(drop=True)
+    decision_frame.index = frame.index
+    return decision_frame
+
+
+def summarize_robust_hr_policy_behavior(frame: pd.DataFrame) -> dict[str, float | str]:
+    if frame.empty:
+        return {
+            "task": "policy_summary",
+            "method": "robust_stage3c2_policy",
+            "frequency_fraction": math.nan,
+            "beat_fallback_fraction": math.nan,
+            "hold_previous_fraction": math.nan,
+            "reject_fraction": math.nan,
+            "avg_abs_jump_bpm": math.nan,
+            "hold_count": 0.0,
+            "subject_boundary_reset_count": 0.0,
+            "fallback_insufficient_count": 0.0,
+        }
+
+    total = max(frame.shape[0], 1)
+    jump_series = frame.loc[frame["robust_hr_is_valid"].astype(bool), "hr_jump_bpm_from_previous"].dropna()
+    return {
+        "task": "policy_summary",
+        "method": "robust_stage3c2_policy",
+        "frequency_fraction": float(np.mean(frame["robust_hr_source"] == "frequency")),
+        "beat_fallback_fraction": float(np.mean(frame["robust_hr_source"] == "beat_fallback")),
+        "hold_previous_fraction": float(np.mean(frame["robust_hr_source"] == "hold_previous")),
+        "reject_fraction": float(np.mean(frame["robust_hr_source"] == "none")),
+        "avg_abs_jump_bpm": float(jump_series.mean()) if not jump_series.empty else math.nan,
+        "hold_count": float(np.sum(frame["hold_applied"].astype(bool))),
+        "subject_boundary_reset_count": float(np.sum(frame["subject_boundary_reset"].astype(bool))),
+        "fallback_insufficient_count": float(np.sum(~frame["beat_fallback_available"].astype(bool))),
+        "num_eval_windows": float(total),
     }
 
 

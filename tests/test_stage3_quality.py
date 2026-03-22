@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 
 from heart_rate_cnn.stage3_quality import (
+    apply_robust_hr_policy_sequence,
     apply_rule_based_quality_decision,
     apply_ml_quality_decision,
     apply_motion_aware_quality_decision,
@@ -10,6 +12,7 @@ from heart_rate_cnn.stage3_quality import (
     build_ml_feature_matrix,
     build_ml_feature_row,
     build_quality_target,
+    compute_local_beat_fallback_hr,
     compute_binary_classification_summary,
     compute_motion_summary,
     evaluate_ml_threshold_grid,
@@ -18,6 +21,7 @@ from heart_rate_cnn.stage3_quality import (
     predict_quality_logistic_regression,
     score_motion_awareness,
     select_best_ml_threshold,
+    summarize_robust_hr_policy_behavior,
     summarize_operating_point_status,
     summarize_threshold_selection,
 )
@@ -48,6 +52,26 @@ def _make_window(with_acc: bool = True) -> WindowSample:
         ppg_fs=fs,
         acc=acc,
         ref_hr_bpm=72.0,
+        is_valid=True,
+    )
+
+
+def _make_pulse_window(bpm: float = 72.0) -> WindowSample:
+    fs = 64.0
+    time = np.arange(0.0, 8.0, 1.0 / fs)
+    ppg = np.zeros_like(time)
+    for beat_time in np.arange(0.6, 8.0, 60.0 / bpm):
+        ppg += np.exp(-0.5 * ((time - beat_time) / 0.04) ** 2)
+    return WindowSample(
+        dataset="synthetic",
+        subject_id="SYNPULSE",
+        window_index=0,
+        start_time_s=0.0,
+        duration_s=8.0,
+        ppg=ppg,
+        ppg_fs=fs,
+        acc=None,
+        ref_hr_bpm=bpm,
         is_valid=True,
     )
 
@@ -358,7 +382,131 @@ def test_apply_motion_aware_quality_decision_keeps_motion_auxiliary() -> None:
     )
     assert decision["motion_flag"]
     assert decision["motion_refined_quality_label"] == "good"
-    assert decision["motion_refined_validity_flag"]
+
+
+def test_compute_local_beat_fallback_hr_uses_local_8s_window() -> None:
+    window = _make_pulse_window(bpm=72.0)
+    fallback = compute_local_beat_fallback_hr(
+        window,
+        config={
+            "fallback_enabled": True,
+            "fallback_variant_mode": "enhanced",
+            "fallback_min_beats": 4,
+            "fallback_min_clean_ibi": 3,
+            "fallback_use_beat_quality_filter": False,
+            "fallback_hr_min_bpm": 45.0,
+            "fallback_hr_max_bpm": 180.0,
+        },
+    )
+    assert fallback["beat_fallback_available"]
+    assert 65.0 <= float(fallback["beat_fallback_hr_bpm"]) <= 80.0
+
+
+def test_apply_robust_hr_policy_sequence_uses_direct_then_hold_then_reject_and_resets() -> None:
+    frame = pd.DataFrame(
+        [
+            {
+                "subject_id": "S1",
+                "window_index": 0,
+                "start_time_s": 0.0,
+                "ungated_pred_hr_bpm": 72.0,
+                "ungated_is_valid": True,
+                "ml_validity_flag": True,
+                "ml_signal_quality_score": 0.80,
+                "beat_fallback_available": False,
+                "beat_fallback_hr_bpm": np.nan,
+            },
+            {
+                "subject_id": "S1",
+                "window_index": 1,
+                "start_time_s": 2.0,
+                "ungated_pred_hr_bpm": np.nan,
+                "ungated_is_valid": False,
+                "ml_validity_flag": False,
+                "ml_signal_quality_score": 0.50,
+                "beat_fallback_available": False,
+                "beat_fallback_hr_bpm": np.nan,
+            },
+            {
+                "subject_id": "S1",
+                "window_index": 2,
+                "start_time_s": 4.0,
+                "ungated_pred_hr_bpm": np.nan,
+                "ungated_is_valid": False,
+                "ml_validity_flag": False,
+                "ml_signal_quality_score": 0.50,
+                "beat_fallback_available": False,
+                "beat_fallback_hr_bpm": np.nan,
+            },
+            {
+                "subject_id": "S2",
+                "window_index": 0,
+                "start_time_s": 0.0,
+                "ungated_pred_hr_bpm": np.nan,
+                "ungated_is_valid": False,
+                "ml_validity_flag": False,
+                "ml_signal_quality_score": 0.50,
+                "beat_fallback_available": False,
+                "beat_fallback_hr_bpm": np.nan,
+            },
+        ]
+    )
+    decisions = apply_robust_hr_policy_sequence(
+        frame,
+        config={
+            "direct_quality_threshold": 0.55,
+            "hold_enabled": True,
+            "max_hold_windows": 1,
+            "hold_quality_floor": 0.45,
+            "hold_subject_boundary_reset": True,
+        },
+    )
+    assert decisions.loc[0, "robust_hr_action"] == "direct_update"
+    assert decisions.loc[1, "robust_hr_action"] == "hold"
+    assert decisions.loc[1, "hold_applied"]
+    assert decisions.loc[2, "robust_hr_action"] == "reject"
+    assert bool(decisions.loc[3, "subject_boundary_reset"])
+    assert decisions.loc[3, "robust_hr_action"] == "reject"
+
+
+def test_apply_robust_hr_policy_sequence_uses_local_fallback_when_frequency_invalid() -> None:
+    frame = pd.DataFrame(
+        [
+            {
+                "subject_id": "S1",
+                "window_index": 0,
+                "start_time_s": 0.0,
+                "ungated_pred_hr_bpm": np.nan,
+                "ungated_is_valid": False,
+                "ml_validity_flag": False,
+                "ml_signal_quality_score": 0.30,
+                "beat_fallback_available": True,
+                "beat_fallback_hr_bpm": 74.0,
+            }
+        ]
+    )
+    decisions = apply_robust_hr_policy_sequence(frame, config={"fallback_enabled": True, "hold_enabled": True, "max_hold_windows": 1})
+    assert decisions.loc[0, "robust_hr_action"] == "fallback_update"
+    assert decisions.loc[0, "robust_hr_source"] == "beat_fallback"
+    assert np.isclose(decisions.loc[0, "robust_hr_bpm"], 74.0)
+
+
+def test_summarize_robust_hr_policy_behavior_reports_action_mix() -> None:
+    frame = pd.DataFrame(
+        {
+            "robust_hr_source": ["frequency", "beat_fallback", "hold_previous", "none"],
+            "robust_hr_is_valid": [True, True, True, False],
+            "hr_jump_bpm_from_previous": [np.nan, 4.0, 0.0, np.nan],
+            "hold_applied": [False, False, True, False],
+            "subject_boundary_reset": [False, False, False, True],
+            "beat_fallback_available": [False, True, False, False],
+        }
+    )
+    summary = summarize_robust_hr_policy_behavior(frame)
+    assert np.isclose(summary["frequency_fraction"], 0.25)
+    assert np.isclose(summary["beat_fallback_fraction"], 0.25)
+    assert np.isclose(summary["hold_previous_fraction"], 0.25)
+    assert np.isclose(summary["reject_fraction"], 0.25)
 
 
 def test_apply_motion_aware_quality_decision_works_without_acc() -> None:

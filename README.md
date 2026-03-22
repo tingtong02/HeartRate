@@ -22,12 +22,14 @@ Implemented so far:
 - a Stage 2 IBI extraction and cleaning path
 - a Stage 2 basic time-domain PRV/HRV feature path
 - a Stage 2 evaluation script that compares `baseline` and `enhanced` beat / IBI / feature pipelines on the same analysis windows
+- a validated minimum viable Stage 3C1 beat-level quality proxy layered on top of the Stage 2 enhanced beat / IBI path
 - a Stage 2 threshold / retention analysis path for the rule-based beat-quality proxy, with an analysis-only `enhanced_beat_quality_refined` operating point
 - optional lightweight Stage 2 worst-window CSV summaries for error review
 - a Stage 3 round-1 rule-based quality-gating baseline for `stage1_frequency`
 - a Stage 3 evaluation script that compares ungated and quality-gated `stage1_frequency` on the same Stage 1 windows
 - a Stage 3 enhancement path with lightweight ML gating and motion-aware strengthened comparison on the same Stage 1 windows
 - a Stage 3B2 DWT-denoised comparison branch inside the same Stage 3 enhanced runner
+- a narrow Stage 3C2 robust-HR policy branch that adds local 8 s beat-derived fallback and a limited auditable `hold_previous` action on top of the same Stage 3 enhanced outputs
 - basic evaluation metrics
 - smoke test and pytest coverage
 
@@ -203,6 +205,9 @@ To reproduce the Stage 3 enhancement round fairly:
 - keep the default subject-wise split seed unless you are intentionally running a new comparison
 - run `run_stage3_enhanced.py` once per dataset
 - use `outputs/{dataset}_stage3_enhanced_metrics.csv` as the source of record
+- `robust_stage3c2_policy` is an additive comparison path inside the same Stage 3 enhanced run
+- the Stage 3C2 beat fallback is computed locally on each Stage 1 8 s window using the existing Stage 2 beat / IBI functions
+- `hold_previous` is intentionally limited, resets at subject boundaries, and is reported explicitly in the predictions CSV rather than acting as hidden smoothing
 
 ## Stage 1 Results
 
@@ -244,6 +249,14 @@ Stage 2 still does not include:
 - frequency-domain HRV
 - nonlinear HRV
 - deep learning models
+
+Stage 3C1 closure status:
+
+- Stage 3C1 implemented and validated a minimum viable rule-based beat-level quality proxy on top of the Stage 2 enhanced pipeline
+- `enhanced_beat_quality` is the official baseline operating point for this branch at threshold `0.55`
+- Stage 3C1.1 added threshold / retention tradeoff analysis and an additive analysis-only `enhanced_beat_quality_refined` comparison row
+- the score is reproducible and decision-useful, but the default threshold is conservative and reduces recall / kept-beat ratio / valid IBI pairs substantially
+- the refined operating point shows that better tradeoffs exist, especially on WESAD, but no new default threshold is adopted here
 
 ## Stage 3 Scope
 

@@ -116,6 +116,23 @@ stage3:
     stability_mae_tolerance: 0.10
     stable_min_threshold_count: 3
     save_threshold_analysis: true
+  robust_hr_policy:
+    enabled: true
+    direct_quality_threshold: 0.55
+    direct_jump_guard_bpm: 20.0
+    fallback_enabled: true
+    fallback_variant_mode: enhanced
+    fallback_min_beats: 4
+    fallback_min_clean_ibi: 3
+    fallback_min_quality_kept_ratio: 0.35
+    fallback_use_beat_quality_filter: true
+    fallback_hr_min_bpm: 45.0
+    fallback_hr_max_bpm: 180.0
+    hold_enabled: true
+    max_hold_windows: 1
+    hold_subject_boundary_reset: true
+    hold_quality_floor: 0.45
+    hold_jump_guard_bpm: 12.0
 
 output:
   save_csv: true
