@@ -56,6 +56,16 @@ stage2:
       ibi_stability: 0.10
       crowding: 0.05
       clean_pair_bonus: 0.05
+  beat_quality_refine:
+    enabled: true
+    coarse_min_threshold: 0.30
+    coarse_max_threshold: 0.75
+    coarse_step: 0.05
+    fine_enabled: true
+    fine_radius: 0.04
+    fine_step: 0.01
+    selection_metric: ibi_rmse_ms
+    min_kept_beat_ratio: 0.35
   matching:
     tolerance_seconds: 0.15
   debug:

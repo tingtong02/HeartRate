@@ -22,6 +22,7 @@ Implemented so far:
 - a Stage 2 IBI extraction and cleaning path
 - a Stage 2 basic time-domain PRV/HRV feature path
 - a Stage 2 evaluation script that compares `baseline` and `enhanced` beat / IBI / feature pipelines on the same analysis windows
+- a Stage 2 threshold / retention analysis path for the rule-based beat-quality proxy, with an analysis-only `enhanced_beat_quality_refined` operating point
 - optional lightweight Stage 2 worst-window CSV summaries for error review
 - a Stage 3 round-1 rule-based quality-gating baseline for `stage1_frequency`
 - a Stage 3 evaluation script that compares ungated and quality-gated `stage1_frequency` on the same Stage 1 windows
@@ -177,8 +178,9 @@ To reproduce the Stage 2 evaluation:
 
 - create local dataset configs the same way as Stage 0 / Stage 1
 - keep the default subject-wise split seed unless you are intentionally running a new comparison
-- run `run_stage2_baseline.py` once per dataset; it will emit both `baseline` and `enhanced` results in the same output tables
+- run `run_stage2_baseline.py` once per dataset; it will emit `baseline`, `enhanced`, the configured `enhanced_beat_quality` baseline operating point, and an analysis-only threshold sweep / refined operating-point comparison when enabled
 - use `outputs/{dataset}_stage2_metrics.csv` as the source of record
+- use `outputs/{dataset}_stage2_beat_quality_sweep.csv` to inspect the threshold / retention tradeoff explicitly
 - optionally set `stage2.debug.save_error_cases: true` in `configs/eval/hr_stage2.yaml` to write a lightweight `outputs/{dataset}_stage2_error_cases.csv`
 
 To reproduce the Stage 1 comparison fairly:

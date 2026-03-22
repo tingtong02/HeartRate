@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import importlib.util
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 
@@ -15,6 +18,16 @@ from heart_rate_cnn.stage2_beat import (
     preprocess_ppg_for_beats,
     refine_beats_in_window,
 )
+
+_RUNNER_SPEC = importlib.util.spec_from_file_location(
+    "run_stage2_baseline_module",
+    Path(__file__).resolve().parents[1] / "scripts" / "run_stage2_baseline.py",
+)
+assert _RUNNER_SPEC is not None and _RUNNER_SPEC.loader is not None
+_RUNNER_MODULE = importlib.util.module_from_spec(_RUNNER_SPEC)
+_RUNNER_SPEC.loader.exec_module(_RUNNER_MODULE)
+build_threshold_grid = _RUNNER_MODULE.build_threshold_grid
+select_beat_quality_analysis_threshold = _RUNNER_MODULE.select_beat_quality_analysis_threshold
 
 
 def _make_ppg_like_signal(fs: float, bpm: float, duration_s: float) -> tuple[np.ndarray, np.ndarray]:
@@ -218,3 +231,41 @@ def test_compute_beat_quality_proxy_quality_flag_matches_threshold() -> None:
     )
     reconstructed = quality["beat_quality_score"] >= 0.65
     assert np.array_equal(quality["beat_is_kept_by_quality"], reconstructed)
+
+
+def test_build_threshold_grid_includes_requested_thresholds() -> None:
+    grid = build_threshold_grid(0.30, 0.60, 0.10, include_thresholds=[0.55])
+    assert np.allclose(grid, np.array([0.30, 0.40, 0.50, 0.55, 0.60]))
+
+
+def test_select_beat_quality_analysis_threshold_prefers_feasible_low_rmse() -> None:
+    sweep = pd.DataFrame(
+        [
+            {"threshold": 0.45, "kept_beat_ratio": 0.32, "ibi_rmse_ms": 60.0, "f1": 0.30},
+            {"threshold": 0.40, "kept_beat_ratio": 0.42, "ibi_rmse_ms": 62.0, "f1": 0.34},
+            {"threshold": 0.35, "kept_beat_ratio": 0.48, "ibi_rmse_ms": 64.0, "f1": 0.36},
+        ]
+    )
+    selected = select_beat_quality_analysis_threshold(
+        sweep,
+        selection_metric="ibi_rmse_ms",
+        min_kept_beat_ratio=0.40,
+    )
+    assert float(selected["threshold"]) == 0.40
+    assert bool(selected["meets_min_kept_beat_ratio"])
+
+
+def test_select_beat_quality_analysis_threshold_falls_back_when_no_feasible_row() -> None:
+    sweep = pd.DataFrame(
+        [
+            {"threshold": 0.55, "kept_beat_ratio": 0.22, "ibi_rmse_ms": 58.0, "f1": 0.20},
+            {"threshold": 0.45, "kept_beat_ratio": 0.30, "ibi_rmse_ms": 55.0, "f1": 0.24},
+        ]
+    )
+    selected = select_beat_quality_analysis_threshold(
+        sweep,
+        selection_metric="ibi_rmse_ms",
+        min_kept_beat_ratio=0.40,
+    )
+    assert float(selected["threshold"]) == 0.45
+    assert not bool(selected["meets_min_kept_beat_ratio"])

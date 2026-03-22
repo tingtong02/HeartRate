@@ -62,6 +62,7 @@ Each run now writes both `baseline` and `enhanced` results for the same subject 
 - Stage 2 keeps `stage1_frequency` as the current strongest HR baseline background
 - `run_stage2_baseline.py` compares `baseline` and `enhanced` variants in one pass
 - when `stage2.beat_quality.enabled: true`, `run_stage2_baseline.py` also evaluates an `enhanced_beat_quality` variant
+- when `stage2.beat_quality_refine.enabled: true`, `run_stage2_baseline.py` also exports a threshold-sweep analysis and an `enhanced_beat_quality_refined` analysis-only operating point
 - lightweight error-case export is off by default and can be enabled from `configs/eval/hr_stage2.yaml`
 
 ## Outputs
@@ -70,6 +71,7 @@ Stage 2 writes:
 
 - `outputs/{dataset}_stage2_beats.csv`
 - `outputs/{dataset}_stage2_beat_quality.csv`
+- `outputs/{dataset}_stage2_beat_quality_sweep.csv`
 - `outputs/{dataset}_stage2_features.csv`
 - `outputs/{dataset}_stage2_metrics.csv`
 - optional `outputs/{dataset}_stage2_error_cases.csv`
@@ -117,3 +119,5 @@ Current interpretation:
 - Beat detection is direct peak finding plus local refinement, not a Hilbert-envelope-first design.
 - The feature set is still strictly time-domain only.
 - The beat-level quality proxy is rule-based and intended as a minimum viable quality layer, not full beat-level SQI closure.
+- `enhanced_beat_quality` remains the official baseline operating point at the configured threshold.
+- `enhanced_beat_quality_refined` is analysis-only and exists to make the threshold/retention tradeoff explicit; it is not a silently adopted new default.

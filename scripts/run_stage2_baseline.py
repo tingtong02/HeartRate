@@ -187,6 +187,211 @@ def summarize_beat_quality_proxy(beat_quality_frame: pd.DataFrame) -> pd.DataFra
     return pd.DataFrame(rows)
 
 
+def build_threshold_grid(
+    min_threshold: float,
+    max_threshold: float,
+    step_threshold: float,
+    *,
+    include_thresholds: list[float] | None = None,
+) -> np.ndarray:
+    if step_threshold <= 0.0:
+        raise ValueError("Threshold step must be positive.")
+    if max_threshold < min_threshold:
+        raise ValueError("Threshold range must satisfy max_threshold >= min_threshold.")
+
+    threshold_values: set[float] = set()
+    current = float(min_threshold)
+    while current <= float(max_threshold) + 1e-8:
+        threshold_values.add(round(current, 6))
+        current += float(step_threshold)
+    for value in include_thresholds or []:
+        threshold_values.add(round(float(value), 6))
+    return np.array(sorted(threshold_values), dtype=float)
+
+
+def select_beat_quality_analysis_threshold(
+    sweep_frame: pd.DataFrame,
+    *,
+    selection_metric: str,
+    min_kept_beat_ratio: float,
+) -> pd.Series:
+    if sweep_frame.empty:
+        raise ValueError("Cannot select a threshold from an empty sweep frame.")
+
+    feasible = sweep_frame.loc[sweep_frame["kept_beat_ratio"] >= float(min_kept_beat_ratio)].copy()
+    selected_frame = feasible if not feasible.empty else sweep_frame.copy()
+    selected_frame = selected_frame.sort_values(
+        by=[selection_metric, "kept_beat_ratio", "f1", "threshold"],
+        ascending=[True, False, False, True],
+    )
+    selected = selected_frame.iloc[0].copy()
+    selected["meets_min_kept_beat_ratio"] = bool(float(selected["kept_beat_ratio"]) >= float(min_kept_beat_ratio))
+    return selected
+
+
+def evaluate_beat_quality_threshold_records(
+    records: list[dict[str, object]],
+    *,
+    threshold: float,
+    variant_name: str,
+    matching_tolerance_seconds: float,
+    ibi_config: dict,
+    reference_ibi_cfg: dict,
+    collect_rows: bool,
+) -> dict[str, object]:
+    beat_rows: list[dict[str, float | str | int]] = []
+    feature_rows: list[dict[str, float | str | int]] = []
+    variant_state: dict[str, list[float] | int] = {
+        "all_ref_ibi_ms": [],
+        "all_pred_ibi_ms": [],
+        "tp": 0,
+        "fp": 0,
+        "fn": 0,
+    }
+    total_raw_beats = 0
+    total_kept_beats = 0
+    beat_count_errors: list[float] = []
+    all_scores_matched: list[float] = []
+    all_scores_unmatched: list[float] = []
+    kept_scores_matched: list[float] = []
+
+    for record in records:
+        raw_pred_beats = np.asarray(record["raw_pred_beats"], dtype=int)
+        ref_beats = np.asarray(record["ref_beats"], dtype=int)
+        beat_quality_score = np.asarray(record["beat_quality_score"], dtype=float)
+        matched_raw_flags = np.asarray(record["matched_raw_flags"], dtype=bool)
+        keep_mask = beat_quality_score >= float(threshold)
+        pred_beats = raw_pred_beats[keep_mask]
+
+        total_raw_beats += int(raw_pred_beats.size)
+        total_kept_beats += int(pred_beats.size)
+        all_scores_matched.extend(beat_quality_score[matched_raw_flags].tolist())
+        all_scores_unmatched.extend(beat_quality_score[~matched_raw_flags].tolist())
+        kept_scores_matched.extend(matched_raw_flags[keep_mask].astype(float).tolist())
+
+        beat_eval = evaluate_beat_detection(
+            pred_beats,
+            ref_beats,
+            pred_fs=float(record["ppg_fs"]),
+            ref_fs=float(record["ecg_fs"]),
+            tolerance_seconds=matching_tolerance_seconds,
+        )
+        beat_count_errors.append(float(beat_eval["beat_count_error"]))
+        variant_state["tp"] = int(variant_state["tp"]) + int(beat_eval["tp"])
+        variant_state["fp"] = int(variant_state["fp"]) + int(beat_eval["fp"])
+        variant_state["fn"] = int(variant_state["fn"]) + int(beat_eval["fn"])
+
+        ref_ibi_s = extract_ibi_from_beats(ref_beats, float(record["ecg_fs"]))
+        ref_clean = clean_ibi_series(ref_ibi_s, reference_ibi_cfg)
+        pred_ibi_s = extract_ibi_from_beats(pred_beats, float(record["ppg_fs"]))
+        pred_clean = clean_ibi_series(pred_ibi_s, ibi_config)
+        ref_ibi_ms, pred_ibi_ms, ref_pair_indices, pred_pair_indices = extract_matched_ibi_pairs_with_indices_ms(
+            pred_beats,
+            ref_beats,
+            pred_fs=float(record["ppg_fs"]),
+            ref_fs=float(record["ecg_fs"]),
+            tolerance_seconds=matching_tolerance_seconds,
+        )
+        if ref_ibi_ms.size and pred_ibi_ms.size:
+            valid_pair_mask = (
+                ref_clean["ibi_mask"][ref_pair_indices].astype(bool)
+                & pred_clean["ibi_mask"][pred_pair_indices].astype(bool)
+            )
+            ref_ibi_ms = ref_ibi_ms[valid_pair_mask]
+            pred_ibi_ms = pred_ibi_ms[valid_pair_mask]
+        if ref_ibi_ms.size and pred_ibi_ms.size:
+            variant_state["all_ref_ibi_ms"].extend(ref_ibi_ms.tolist())
+            variant_state["all_pred_ibi_ms"].extend(pred_ibi_ms.tolist())
+            ibi_metrics = compute_ibi_error_metrics(ref_ibi_ms, pred_ibi_ms)
+        else:
+            ibi_metrics = {
+                "ibi_mae_ms": math.nan,
+                "ibi_rmse_ms": math.nan,
+                "num_valid_ibi_pairs": 0.0,
+            }
+
+        if collect_rows:
+            pred_features = compute_time_domain_prv_features(
+                pred_clean["ibi_clean_s"],
+                num_beats=len(pred_beats),
+                num_ibi_raw=len(pred_ibi_s),
+                num_ibi_clean=len(pred_clean["ibi_clean_s"]),
+            )
+            ref_features = record["ref_features"]
+
+            beat_rows.append(
+                {
+                    "variant": variant_name,
+                    "dataset": record["dataset"],
+                    "subject_id": record["subject_id"],
+                    "analysis_window_index": record["analysis_window_index"],
+                    "start_time_s": record["start_time_s"],
+                    "duration_s": record["duration_s"],
+                    "num_pred_beats": float(len(pred_beats)),
+                    "num_ref_beats": float(len(ref_beats)),
+                    "pred_num_ibi_clean": float(len(pred_clean["ibi_clean_s"])),
+                    "ref_num_ibi_clean": float(len(ref_clean["ibi_clean_s"])),
+                    "pred_ibi_removed_ratio": float(pred_clean["ibi_removed_ratio"]) if not math.isnan(float(pred_clean["ibi_removed_ratio"])) else math.nan,
+                    "tp": float(beat_eval["tp"]),
+                    "fp": float(beat_eval["fp"]),
+                    "fn": float(beat_eval["fn"]),
+                    "precision": float(beat_eval["precision"]) if not math.isnan(float(beat_eval["precision"])) else math.nan,
+                    "recall": float(beat_eval["recall"]) if not math.isnan(float(beat_eval["recall"])) else math.nan,
+                    "f1": float(beat_eval["f1"]) if not math.isnan(float(beat_eval["f1"])) else math.nan,
+                    "beat_count_error": float(beat_eval["beat_count_error"]),
+                    "ibi_mae_ms": float(ibi_metrics["ibi_mae_ms"]) if not math.isnan(float(ibi_metrics["ibi_mae_ms"])) else math.nan,
+                    "ibi_rmse_ms": float(ibi_metrics["ibi_rmse_ms"]) if not math.isnan(float(ibi_metrics["ibi_rmse_ms"])) else math.nan,
+                    "num_valid_ibi_pairs": float(ibi_metrics["num_valid_ibi_pairs"]),
+                }
+            )
+
+            feature_row: dict[str, float | str | int] = {
+                "variant": variant_name,
+                "dataset": record["dataset"],
+                "subject_id": record["subject_id"],
+                "analysis_window_index": record["analysis_window_index"],
+                "start_time_s": record["start_time_s"],
+                "duration_s": record["duration_s"],
+            }
+            for feature_name in FEATURE_NAMES:
+                feature_row[f"pred_{feature_name}"] = float(pred_features[feature_name])
+                feature_row[f"ref_{feature_name}"] = float(ref_features[feature_name])
+            feature_rows.append(feature_row)
+
+    beat_summary = compute_precision_recall_f1(
+        int(variant_state["tp"]),
+        int(variant_state["fp"]),
+        int(variant_state["fn"]),
+    )
+    ibi_summary = compute_ibi_error_metrics(
+        np.asarray(variant_state["all_ref_ibi_ms"], dtype=float),
+        np.asarray(variant_state["all_pred_ibi_ms"], dtype=float),
+    )
+    summary_row = {
+        "variant_source": "enhanced_beat_quality",
+        "threshold": float(threshold),
+        "num_pred_beats": float(total_raw_beats),
+        "kept_beat_ratio": float(total_kept_beats / max(total_raw_beats, 1)),
+        "precision": float(beat_summary["precision"]) if not math.isnan(float(beat_summary["precision"])) else math.nan,
+        "recall": float(beat_summary["recall"]) if not math.isnan(float(beat_summary["recall"])) else math.nan,
+        "f1": float(beat_summary["f1"]) if not math.isnan(float(beat_summary["f1"])) else math.nan,
+        "beat_count_error": float(np.mean(beat_count_errors)) if beat_count_errors else math.nan,
+        "ibi_mae_ms": float(ibi_summary["ibi_mae_ms"]) if not math.isnan(float(ibi_summary["ibi_mae_ms"])) else math.nan,
+        "ibi_rmse_ms": float(ibi_summary["ibi_rmse_ms"]) if not math.isnan(float(ibi_summary["ibi_rmse_ms"])) else math.nan,
+        "num_valid_ibi_pairs": float(ibi_summary["num_valid_ibi_pairs"]),
+        "mean_score_matched": float(np.mean(all_scores_matched)) if all_scores_matched else math.nan,
+        "mean_score_unmatched": float(np.mean(all_scores_unmatched)) if all_scores_unmatched else math.nan,
+        "good_label_ratio": float(total_kept_beats / max(total_raw_beats, 1)),
+        "precision_among_kept": float(np.mean(kept_scores_matched)) if kept_scores_matched else math.nan,
+    }
+    return {
+        "beat_rows": beat_rows,
+        "feature_rows": feature_rows,
+        "variant_state": variant_state,
+        "summary_row": summary_row,
+    }
+
+
 def main() -> None:
     args = parse_args()
     config = merge_dicts(load_yaml(args.config), load_yaml(args.dataset_config))
@@ -199,6 +404,7 @@ def main() -> None:
     output_cfg = config["output"]
     variant_cfgs, reference_ibi_cfg = build_variant_configs(stage2_cfg)
     debug_cfg = stage2_cfg.get("debug", {})
+    beat_quality_refine_cfg = stage2_cfg.get("beat_quality_refine", {})
 
     loader = make_loader(dataset_cfg["name"], dataset_cfg["root_dir"])
     subjects = loader.list_subjects()
@@ -218,6 +424,10 @@ def main() -> None:
     beat_rows: list[dict[str, float | str | int]] = []
     feature_rows: list[dict[str, float | str | int]] = []
     beat_quality_rows: list[dict[str, float | str | int | bool]] = []
+    beat_quality_analysis_records: list[dict[str, object]] = []
+    beat_quality_refined_summary_row: dict[str, float | str] | None = None
+    beat_quality_threshold_selection_row: dict[str, float | str] | None = None
+    beat_quality_sweep_frame = pd.DataFrame()
     variant_state: dict[str, dict[str, list[float] | int]] = {
         variant: {
             "all_ref_ibi_ms": [],
@@ -359,6 +569,25 @@ def main() -> None:
                         tolerance_seconds=float(stage2_cfg["matching"]["tolerance_seconds"]),
                     )
                     matched_raw_indices = {int(pred_idx) for pred_idx, _ in raw_eval["matches"]}
+                    beat_quality_analysis_records.append(
+                        {
+                            "dataset": window["dataset"],
+                            "subject_id": window["subject_id"],
+                            "analysis_window_index": window["analysis_window_index"],
+                            "start_time_s": window["start_time_s"],
+                            "duration_s": window["duration_s"],
+                            "ppg_fs": float(window["ppg_fs"]),
+                            "ecg_fs": float(window["ecg_fs"]),
+                            "ref_beats": np.asarray(ref_beats, dtype=int),
+                            "raw_pred_beats": np.asarray(raw_pred_beats, dtype=int),
+                            "beat_quality_score": np.asarray(beat_quality_proxy["beat_quality_score"], dtype=float),
+                            "matched_raw_flags": np.array(
+                                [raw_index in matched_raw_indices for raw_index in range(raw_pred_beats.size)],
+                                dtype=bool,
+                            ),
+                            "ref_features": ref_features,
+                        }
+                    )
 
                     quality_clean_pair_raw_flags = np.zeros(raw_pred_beats.size, dtype=bool)
                     pred_clean_mask = np.asarray(pred_clean["ibi_mask"], dtype=bool)
@@ -411,12 +640,131 @@ def main() -> None:
                             }
                         )
 
+    refined_variant_name = "enhanced_beat_quality_refined"
+    if (
+        bool(stage2_cfg.get("beat_quality", {}).get("enabled", False))
+        and bool(beat_quality_refine_cfg.get("enabled", False))
+        and beat_quality_analysis_records
+    ):
+        baseline_threshold = float(stage2_cfg.get("beat_quality", {}).get("good_score_threshold", 0.55))
+        coarse_thresholds = build_threshold_grid(
+            float(beat_quality_refine_cfg.get("coarse_min_threshold", 0.30)),
+            float(beat_quality_refine_cfg.get("coarse_max_threshold", 0.75)),
+            float(beat_quality_refine_cfg.get("coarse_step", 0.05)),
+            include_thresholds=[baseline_threshold],
+        )
+        selection_metric = str(beat_quality_refine_cfg.get("selection_metric", "ibi_rmse_ms"))
+        min_kept_beat_ratio = float(beat_quality_refine_cfg.get("min_kept_beat_ratio", 0.35))
+
+        sweep_rows: list[dict[str, float | str | bool]] = []
+        for threshold in coarse_thresholds.tolist():
+            sweep_result = evaluate_beat_quality_threshold_records(
+                beat_quality_analysis_records,
+                threshold=float(threshold),
+                variant_name=refined_variant_name,
+                matching_tolerance_seconds=float(stage2_cfg["matching"]["tolerance_seconds"]),
+                ibi_config=variant_cfgs["enhanced_beat_quality"]["ibi"],
+                reference_ibi_cfg=reference_ibi_cfg,
+                collect_rows=False,
+            )
+            summary_row = dict(sweep_result["summary_row"])
+            summary_row["sweep_stage"] = "coarse"
+            summary_row["is_baseline_threshold"] = bool(abs(float(threshold) - baseline_threshold) <= 1e-8)
+            summary_row["meets_min_kept_beat_ratio"] = bool(float(summary_row["kept_beat_ratio"]) >= min_kept_beat_ratio)
+            summary_row["is_feasible"] = bool(summary_row["meets_min_kept_beat_ratio"])
+            sweep_rows.append(summary_row)
+
+        coarse_sweep_frame = pd.DataFrame(sweep_rows)
+        coarse_selected = select_beat_quality_analysis_threshold(
+            coarse_sweep_frame,
+            selection_metric=selection_metric,
+            min_kept_beat_ratio=min_kept_beat_ratio,
+        )
+
+        if bool(beat_quality_refine_cfg.get("fine_enabled", True)):
+            fine_thresholds = build_threshold_grid(
+                float(coarse_selected["threshold"]) - float(beat_quality_refine_cfg.get("fine_radius", 0.04)),
+                float(coarse_selected["threshold"]) + float(beat_quality_refine_cfg.get("fine_radius", 0.04)),
+                float(beat_quality_refine_cfg.get("fine_step", 0.01)),
+                include_thresholds=[baseline_threshold, float(coarse_selected["threshold"])],
+            )
+            seen_thresholds = {round(float(row["threshold"]), 6) for row in sweep_rows}
+            for threshold in fine_thresholds.tolist():
+                rounded_threshold = round(float(threshold), 6)
+                if rounded_threshold in seen_thresholds:
+                    continue
+                sweep_result = evaluate_beat_quality_threshold_records(
+                    beat_quality_analysis_records,
+                    threshold=float(threshold),
+                    variant_name=refined_variant_name,
+                    matching_tolerance_seconds=float(stage2_cfg["matching"]["tolerance_seconds"]),
+                    ibi_config=variant_cfgs["enhanced_beat_quality"]["ibi"],
+                    reference_ibi_cfg=reference_ibi_cfg,
+                    collect_rows=False,
+                )
+                summary_row = dict(sweep_result["summary_row"])
+                summary_row["sweep_stage"] = "fine"
+                summary_row["is_baseline_threshold"] = bool(abs(float(threshold) - baseline_threshold) <= 1e-8)
+                summary_row["meets_min_kept_beat_ratio"] = bool(float(summary_row["kept_beat_ratio"]) >= min_kept_beat_ratio)
+                summary_row["is_feasible"] = bool(summary_row["meets_min_kept_beat_ratio"])
+                sweep_rows.append(summary_row)
+                seen_thresholds.add(rounded_threshold)
+
+        beat_quality_sweep_frame = pd.DataFrame(sweep_rows).sort_values(
+            by=["threshold", "sweep_stage"],
+            ascending=[True, True],
+        ).reset_index(drop=True)
+        selected_row = select_beat_quality_analysis_threshold(
+            beat_quality_sweep_frame,
+            selection_metric=selection_metric,
+            min_kept_beat_ratio=min_kept_beat_ratio,
+        )
+        selected_threshold = float(selected_row["threshold"])
+        refined_result = evaluate_beat_quality_threshold_records(
+            beat_quality_analysis_records,
+            threshold=selected_threshold,
+            variant_name=refined_variant_name,
+            matching_tolerance_seconds=float(stage2_cfg["matching"]["tolerance_seconds"]),
+            ibi_config=variant_cfgs["enhanced_beat_quality"]["ibi"],
+            reference_ibi_cfg=reference_ibi_cfg,
+            collect_rows=True,
+        )
+        beat_rows.extend(refined_result["beat_rows"])
+        feature_rows.extend(refined_result["feature_rows"])
+        variant_state[refined_variant_name] = refined_result["variant_state"]
+
+        beat_quality_refined_summary_row = {
+            "variant": refined_variant_name,
+            "task": "beat_quality_proxy",
+            "metric_group": "summary",
+            "num_pred_beats": float(selected_row["num_pred_beats"]),
+            "kept_beat_ratio": float(selected_row["kept_beat_ratio"]),
+            "good_label_ratio": float(selected_row["good_label_ratio"]),
+            "precision_among_kept": float(selected_row["precision_among_kept"]) if not math.isnan(float(selected_row["precision_among_kept"])) else math.nan,
+            "mean_score_matched": float(selected_row["mean_score_matched"]) if not math.isnan(float(selected_row["mean_score_matched"])) else math.nan,
+            "mean_score_unmatched": float(selected_row["mean_score_unmatched"]) if not math.isnan(float(selected_row["mean_score_unmatched"])) else math.nan,
+        }
+        beat_quality_threshold_selection_row = {
+            "variant": refined_variant_name,
+            "task": "beat_quality_threshold_selection",
+            "metric_group": "summary",
+            "baseline_threshold": baseline_threshold,
+            "selected_threshold": selected_threshold,
+            "selection_metric": selection_metric,
+            "selection_constraint": f"analysis_only|min_kept_beat_ratio>={min_kept_beat_ratio:.2f}",
+            "selected_kept_beat_ratio": float(selected_row["kept_beat_ratio"]),
+            "operating_point_role": "analysis_only",
+        }
+
     beat_frame = pd.DataFrame(beat_rows)
     feature_frame = pd.DataFrame(feature_rows)
     beat_quality_frame = pd.DataFrame(beat_quality_rows)
 
     metrics_parts: list[pd.DataFrame] = []
-    for variant in variant_cfgs:
+    variant_order = list(variant_cfgs.keys())
+    if refined_variant_name in variant_state:
+        variant_order.append(refined_variant_name)
+    for variant in variant_order:
         variant_beat_frame = beat_frame.loc[beat_frame["variant"] == variant].copy()
         variant_feature_frame = feature_frame.loc[feature_frame["variant"] == variant].copy()
         beat_summary = compute_precision_recall_f1(
@@ -459,14 +807,21 @@ def main() -> None:
     beat_quality_summary = summarize_beat_quality_proxy(beat_quality_frame)
     if not beat_quality_summary.empty:
         metrics_parts.append(beat_quality_summary)
+    if beat_quality_refined_summary_row is not None:
+        metrics_parts.append(pd.DataFrame([beat_quality_refined_summary_row]))
+    if beat_quality_threshold_selection_row is not None:
+        metrics_parts.append(pd.DataFrame([beat_quality_threshold_selection_row]))
 
     metrics_frame = pd.concat(metrics_parts, ignore_index=True, sort=False)
 
     print("Stage 2 baseline completed.")
     print(f"Dataset: {dataset_cfg['name']}")
     print(f"Subjects evaluated: {len(eval_subjects)}")
-    print(f"Analysis windows: {int(len(beat_frame) / max(len(variant_cfgs), 1))}")
-    for variant in variant_cfgs:
+    analysis_window_count = 0
+    if variant_order:
+        analysis_window_count = int(beat_frame.loc[beat_frame["variant"] == variant_order[0]].shape[0])
+    print(f"Analysis windows: {analysis_window_count}")
+    for variant in variant_order:
         variant_metrics = metrics_frame.loc[
             (metrics_frame["variant"] == variant) & (metrics_frame["metric_group"] == "summary")
         ].copy()
@@ -501,6 +856,13 @@ def main() -> None:
             for key in ("num_pred_beats", "kept_beat_ratio", "good_label_ratio", "precision_among_kept", "mean_score_matched", "mean_score_unmatched"):
                 value = quality_row.get(key, math.nan)
                 print(f"    {key}: {value:.4f}" if isinstance(value, float) and not math.isnan(value) else f"    {key}: {value}")
+        threshold_subset = variant_metrics.loc[variant_metrics["task"] == "beat_quality_threshold_selection"]
+        if not threshold_subset.empty:
+            threshold_row = threshold_subset.iloc[0].to_dict()
+            print("  task: beat_quality_threshold_selection")
+            for key in ("baseline_threshold", "selected_threshold", "selection_metric", "selection_constraint", "selected_kept_beat_ratio", "operating_point_role"):
+                value = threshold_row.get(key, math.nan)
+                print(f"    {key}: {value:.4f}" if isinstance(value, float) and not math.isnan(value) else f"    {key}: {value}")
 
     save_csv = bool(output_cfg.get("save_csv", False))
     save_error_cases = bool(debug_cfg.get("save_error_cases", False))
@@ -511,14 +873,19 @@ def main() -> None:
     if save_csv:
         beats_path = output_dir / f"{dataset_cfg['name']}_stage2_beats.csv"
         beat_quality_path = output_dir / f"{dataset_cfg['name']}_stage2_beat_quality.csv"
+        beat_quality_sweep_path = output_dir / f"{dataset_cfg['name']}_stage2_beat_quality_sweep.csv"
         features_path = output_dir / f"{dataset_cfg['name']}_stage2_features.csv"
         metrics_path = output_dir / f"{dataset_cfg['name']}_stage2_metrics.csv"
         beat_frame.to_csv(beats_path, index=False)
         beat_quality_frame.to_csv(beat_quality_path, index=False)
+        if not beat_quality_sweep_frame.empty:
+            beat_quality_sweep_frame.to_csv(beat_quality_sweep_path, index=False)
         feature_frame.to_csv(features_path, index=False)
         metrics_frame.to_csv(metrics_path, index=False)
         print(f"Saved beats to: {beats_path}")
         print(f"Saved beat quality to: {beat_quality_path}")
+        if not beat_quality_sweep_frame.empty:
+            print(f"Saved beat quality sweep to: {beat_quality_sweep_path}")
         print(f"Saved features to: {features_path}")
         print(f"Saved metrics to: {metrics_path}")
 
