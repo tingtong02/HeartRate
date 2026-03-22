@@ -157,6 +157,20 @@ python scripts/run_stage3_baseline.py \
   --dataset-config configs/datasets/wesad.local.yaml
 ```
 
+Run the Stage 3 enhancement-round comparison on PPG-DaLiA:
+
+```bash
+python scripts/run_stage3_enhanced.py \
+  --dataset-config configs/datasets/ppg_dalia.local.yaml
+```
+
+Run the Stage 3 enhancement-round comparison on WESAD:
+
+```bash
+python scripts/run_stage3_enhanced.py \
+  --dataset-config configs/datasets/wesad.local.yaml
+```
+
 To reproduce the Stage 2 evaluation:
 
 - create local dataset configs the same way as Stage 0 / Stage 1
@@ -178,6 +192,13 @@ To reproduce the Stage 3 round-1 gating comparison:
 - keep the default subject-wise split seed unless you are intentionally running a new comparison
 - run `run_stage3_baseline.py` once per dataset
 - use `outputs/{dataset}_stage3_metrics.csv` as the source of record
+
+To reproduce the Stage 3 enhancement round fairly:
+
+- use the same dataset config style as Stage 0 / Stage 1 / Stage 3 baseline
+- keep the default subject-wise split seed unless you are intentionally running a new comparison
+- run `run_stage3_enhanced.py` once per dataset
+- use `outputs/{dataset}_stage3_enhanced_metrics.csv` as the source of record
 
 ## Stage 1 Results
 
@@ -227,6 +248,11 @@ Stage 3 round 1 currently includes:
 - rule-based quality gating for `stage1_frequency`
 - an auxiliary ACC-based `motion_flag`
 - gated-vs-ungated HR comparison against ECG-backed reference HR
+
+Stage 3 enhancement round currently adds:
+
+- a lightweight `LogisticRegression` quality model on top of the Stage 3 rule baseline
+- fair comparison of ungated, rule-gated, and ML-gated `stage1_frequency`
 
 Stage 3 round 1 does not include:
 

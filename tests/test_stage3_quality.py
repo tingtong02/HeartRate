@@ -4,10 +4,16 @@ import numpy as np
 
 from heart_rate_cnn.stage3_quality import (
     apply_rule_based_quality_decision,
+    apply_ml_quality_decision,
+    build_ml_feature_matrix,
+    build_ml_feature_row,
     build_quality_target,
     compute_binary_classification_summary,
     compute_motion_summary,
     extract_quality_features,
+    fit_quality_logistic_regression,
+    predict_quality_logistic_regression,
+    select_best_ml_threshold,
 )
 from heart_rate_cnn.types import WindowSample
 
@@ -175,3 +181,137 @@ def test_compute_binary_classification_summary_returns_expected_counts() -> None
     )
     assert summary["num_eval_windows"] == 4.0
     assert np.isclose(summary["accuracy"], 0.75)
+
+
+def test_build_ml_feature_row_adds_derived_fields() -> None:
+    row = build_ml_feature_row(
+        {
+            "freq_pred_hr_bpm": 80.0,
+            "freq_confidence": 0.8,
+            "freq_peak_ratio": 2.2,
+            "freq_is_valid": True,
+            "time_confidence": 0.6,
+            "time_num_peaks": 9.0,
+            "time_is_valid": True,
+            "fusion_confidence": 0.7,
+            "fusion_source": "blended",
+            "hr_agreement_bpm": 4.0,
+            "ppg_centered_std": 1.0,
+            "ppg_peak_to_peak": 3.0,
+            "ppg_processed_diff_std": 0.1,
+            "has_acc": True,
+            "acc_axis_std_norm": 0.2,
+            "acc_mag_range": 0.5,
+        }
+    )
+    assert np.isclose(row["hr_agreement_ratio"], 0.05)
+    assert row["fusion_is_blended"] == 1.0
+
+
+def test_build_ml_feature_matrix_returns_expected_shape() -> None:
+    matrix = build_ml_feature_matrix(
+        [
+            {
+                "freq_pred_hr_bpm": 75.0,
+                "freq_confidence": 0.8,
+                "freq_peak_ratio": 2.0,
+                "freq_is_valid": True,
+                "time_confidence": 0.6,
+                "time_num_peaks": 9.0,
+                "time_is_valid": True,
+                "fusion_confidence": 0.7,
+                "fusion_source": "blended",
+                "hr_agreement_bpm": 3.0,
+                "ppg_centered_std": 1.0,
+                "ppg_peak_to_peak": 2.5,
+                "ppg_processed_diff_std": 0.1,
+                "has_acc": False,
+                "acc_axis_std_norm": np.nan,
+                "acc_mag_range": np.nan,
+            }
+        ]
+    )
+    assert matrix.shape[0] == 1
+    assert matrix.shape[1] >= 10
+
+
+def test_fit_and_predict_quality_logistic_regression() -> None:
+    feature_rows = [
+        {
+            "freq_pred_hr_bpm": 72.0,
+            "freq_confidence": 0.9,
+            "freq_peak_ratio": 2.8,
+            "freq_is_valid": True,
+            "time_confidence": 0.7,
+            "time_num_peaks": 9.0,
+            "time_is_valid": True,
+            "fusion_confidence": 0.8,
+            "fusion_source": "blended",
+            "hr_agreement_bpm": 1.0,
+            "ppg_centered_std": 1.0,
+            "ppg_peak_to_peak": 2.0,
+            "ppg_processed_diff_std": 0.08,
+            "has_acc": False,
+            "acc_axis_std_norm": np.nan,
+            "acc_mag_range": np.nan,
+        },
+        {
+            "freq_pred_hr_bpm": 72.0,
+            "freq_confidence": 0.1,
+            "freq_peak_ratio": 1.1,
+            "freq_is_valid": False,
+            "time_confidence": 0.2,
+            "time_num_peaks": 4.0,
+            "time_is_valid": False,
+            "fusion_confidence": 0.1,
+            "fusion_source": "frequency",
+            "hr_agreement_bpm": 18.0,
+            "ppg_centered_std": 1.5,
+            "ppg_peak_to_peak": 4.0,
+            "ppg_processed_diff_std": 0.3,
+            "has_acc": False,
+            "acc_axis_std_norm": np.nan,
+            "acc_mag_range": np.nan,
+        },
+    ]
+    model = fit_quality_logistic_regression(feature_rows, ["good", "poor"], random_seed=42)
+    probabilities = predict_quality_logistic_regression(model, feature_rows)
+    assert probabilities.shape == (2,)
+    assert np.all((probabilities >= 0.0) & (probabilities <= 1.0))
+
+
+def test_apply_ml_quality_decision_uses_threshold() -> None:
+    decision = apply_ml_quality_decision(
+        signal_quality_score=0.72,
+        threshold=0.60,
+        window_is_valid=True,
+        freq_is_valid=True,
+        motion_flag=True,
+    )
+    assert decision["signal_quality_label"] == "good"
+    assert decision["validity_flag"]
+    assert decision["motion_flag"]
+
+
+def test_select_best_ml_threshold_prefers_low_mae_with_retention_floor() -> None:
+    import pandas as pd
+
+    frame = pd.DataFrame(
+        {
+            "quality_target_label": ["good", "good", "poor", "poor"],
+            "ml_signal_quality_score": [0.90, 0.85, 0.40, 0.20],
+            "ref_hr_bpm": [70.0, 72.0, 68.0, 75.0],
+            "ungated_pred_hr_bpm": [70.0, 72.0, 90.0, 95.0],
+            "ungated_is_valid": [True, True, True, True],
+        }
+    )
+    summary = select_best_ml_threshold(
+        frame,
+        score_col="ml_signal_quality_score",
+        pred_col="ungated_pred_hr_bpm",
+        valid_col="ungated_is_valid",
+        threshold_grid=[0.3, 0.5, 0.8],
+        min_retention_ratio=0.5,
+    )
+    assert summary["selected_threshold"] in {0.3, 0.5, 0.8}
+    assert summary["retention_ratio"] >= 0.5
