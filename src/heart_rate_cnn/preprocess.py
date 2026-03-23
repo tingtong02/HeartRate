@@ -151,12 +151,19 @@ def preprocess_ppg_stage1(
 
 def trim_record_to_common_duration(record: SubjectRecord) -> SubjectRecord:
     durations = [record.ppg.shape[0] / record.ppg_fs, record.ecg.shape[0] / record.ecg_fs]
+    if record.resp is not None and record.resp_fs is not None:
+        durations.append(record.resp.shape[0] / record.resp_fs)
     if record.acc is not None and record.acc_fs is not None:
         durations.append(record.acc.shape[0] / record.acc_fs)
     common_duration_s = min(durations)
 
     ppg_samples = int(np.floor(common_duration_s * record.ppg_fs))
     ecg_samples = int(np.floor(common_duration_s * record.ecg_fs))
+    resp = None
+    resp_fs = record.resp_fs
+    if record.resp is not None and record.resp_fs is not None:
+        resp_samples = int(np.floor(common_duration_s * record.resp_fs))
+        resp = record.resp[:resp_samples]
     acc = None
     acc_fs = record.acc_fs
     if record.acc is not None and record.acc_fs is not None:
@@ -172,6 +179,8 @@ def trim_record_to_common_duration(record: SubjectRecord) -> SubjectRecord:
         ppg_fs=record.ppg_fs,
         ecg=record.ecg[:ecg_samples],
         ecg_fs=record.ecg_fs,
+        resp=resp,
+        resp_fs=resp_fs if resp is not None else None,
         acc=acc,
         acc_fs=acc_fs if acc is not None else None,
         metadata=metadata,

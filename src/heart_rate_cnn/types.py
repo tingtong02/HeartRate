@@ -17,6 +17,8 @@ class SubjectRecord:
     ppg_fs: float
     ecg: ArrayLike
     ecg_fs: float
+    resp: ArrayLike | None = None
+    resp_fs: float | None = None
     acc: ArrayLike | None = None
     acc_fs: float | None = None
     metadata: dict[str, Any] = field(default_factory=dict)

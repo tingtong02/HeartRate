@@ -1,0 +1,5 @@
+stage5:
+  model_name: stage5_resp_multitask_cnn_v1
+  tuning:
+    kernel_sizes: [7, 5, 5]
+    huber_delta: 1.0

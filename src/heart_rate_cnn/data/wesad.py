@@ -13,6 +13,7 @@ from heart_rate_cnn.types import SubjectRecord
 DEFAULT_PPG_FS = 64.0
 DEFAULT_ACC_FS = 32.0
 DEFAULT_ECG_FS = 700.0
+DEFAULT_RESP_FS = 700.0
 
 
 class WESADLoader(BaseLoader):
@@ -33,6 +34,8 @@ class WESADLoader(BaseLoader):
 
         ppg = self._as_array(self._require_key(wrist, "BVP"), "wrist.BVP")
         ecg = self._as_array(self._require_key(chest, "ECG"), "chest.ECG")
+        resp_value = chest.get("Resp")
+        resp = None if resp_value is None else self._as_array(resp_value, "chest.Resp")
         acc_value = wrist.get("ACC")
         acc = None if acc_value is None else self._as_array(acc_value, "wrist.ACC")
 
@@ -43,6 +46,8 @@ class WESADLoader(BaseLoader):
             ppg_fs=float(payload.get("ppg_fs", DEFAULT_PPG_FS)),
             ecg=ecg,
             ecg_fs=float(payload.get("ecg_fs", DEFAULT_ECG_FS)),
+            resp=resp,
+            resp_fs=float(payload.get("resp_fs", DEFAULT_RESP_FS)) if resp is not None else None,
             acc=acc,
             acc_fs=float(payload.get("acc_fs", DEFAULT_ACC_FS)) if acc is not None else None,
             metadata={

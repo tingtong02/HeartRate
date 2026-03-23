@@ -19,6 +19,7 @@ dependencies = [
   "joblib",
   "matplotlib",
   "PyWavelets",
+  "torch>=2.5,<2.6",
 ]
 
 [project.optional-dependencies]

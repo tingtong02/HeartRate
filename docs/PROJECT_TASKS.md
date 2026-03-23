@@ -272,10 +272,31 @@ Acceptance criteria:
 Goals:
 - Expand from HR system to a multitask physiological analysis framework
 
+Current status:
+- Stage 5 is now complete for this repository's current CPU-first implemented scope
+- Implemented repository Stage 5 scope includes:
+  - direct respiration-reference extraction from the public chest `Resp` waveform already present in `PPG-DaLiA` and `WESAD`
+  - a classical `RIAV` / `RIFV` / `RIBV` surrogate-fusion respiration baseline
+  - a tuned CPU-first 1D CNN multitask respiration model with RR regression and respiration-validity confidence heads
+  - a cache-backed Stage 5 window preparation workflow for repeated tuning/evaluation runs
+  - a unified Stage 5 multitask inference interface that carries forward Stage 4 HR / quality / event / anomaly context
+- Current default / interpretation:
+  - default Stage 5 model is `stage5_resp_multitask_cnn_v1`
+  - Stage 5 uses direct chest-Resp-derived RR references, not a proxy-only default
+  - Stage 5 does not retrain or replace the HR estimator; it extends the existing pipeline with respiration outputs
+  - canonical eval runs show the tuned CNN clearly outperforming the classical surrogate baseline on both datasets
+  - high-quality RR estimates are usable on both datasets, with stronger results on `PPG-DaLiA`
+  - Stage 5 does not materially degrade Stage 4 HR outputs because the HR layer is inherited unchanged
+- Deferred beyond current Stage 5 scope:
+  - TCN-based respiration modeling
+  - end-to-end joint HR+RR retraining
+  - clinical respiration validation
+  - broader non-CPU-first Stage 5 extensions
+
 Algorithms:
 - RIAV / RIFV / RIBV respiration estimation
-- Fusion model for respiration rate
-- CNN + TCN multitask architecture
+- Fusion baseline for respiration rate
+- 1D CNN multitask respiration architecture
 - Unified feature and output interface
 
 Deliverables:

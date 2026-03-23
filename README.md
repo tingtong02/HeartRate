@@ -1,7 +1,7 @@
 # HeartRate_CNN
 
-HeartRate_CNN is a public-dataset PPG heart rate analysis project.  
-The current repository state now includes **a complete Stage 4 physiological output layer for this repository's current CPU-first scope** on top of the Stage 0, Stage 1, Stage 2, and Stage 3 foundations.
+HeartRate_CNN is a public-dataset PPG physiological analysis project.  
+The current repository state now includes **a complete Stage 5 multitask respiration layer for this repository's current CPU-first scope** on top of the Stage 0, Stage 1, Stage 2, Stage 3, and Stage 4 foundations.
 
 ## Stage 3 Closure Status
 
@@ -59,16 +59,21 @@ Implemented so far:
 - a Stage 4C baseline for quality-gated anomaly scoring with `IsolationForest`
 - a final Stage 4 unified row-wise output layer with event, irregularity, anomaly, and combined suspiciousness fields
 - explicit Stage 3-only versus Stage 4 comparison rows on a proxy abnormal target
+- a Stage 5 respiration reference pipeline derived from the public chest `Resp` waveform already present in `PPG-DaLiA` and `WESAD`
+- a Stage 5 classical respiration surrogate baseline using `RIAV`, `RIFV`, and `RIBV`
+- a tuned CPU-first Stage 5 1D CNN multitask respiration model with RR regression and respiration-validity confidence heads
+- a cache-backed Stage 5 window package workflow for repeated tuning and evaluation runs
+- a Stage 5 unified multitask output interface that carries forward Stage 4 HR/quality/event/anomaly context and adds respiration outputs
 - basic evaluation metrics
 - smoke test and pytest coverage
 
 Still not included:
 
-- CNN / TCN / deep learning training
-- respiration estimation
 - frequency-domain or nonlinear HRV features
 - clinical rhythm diagnosis
-- deep anomaly models such as autoencoders
+- TCN-based respiration modeling
+- end-to-end joint HR+RR retraining
+- clinical respiration validation
 
 Current Stage 3 scope should now be treated as practically complete for this repository's narrow, CPU-first quality-aware HR layer.
 
@@ -270,6 +275,48 @@ Stage 4 output routing now follows two explicit scopes:
 - reusable cache artifacts live under `outputs/cache/stage4/<dataset>/`
 
 The Stage 4 prep script and all Stage 4 runners will reuse matching cached source and feature packages unless `--rebuild-cache` is passed.
+
+## Stage 5 Workflow
+
+Prepare reusable Stage 5 respiration window packages before repeated tuning runs:
+
+```bash
+python scripts/prepare_stage5_sources.py \
+  --dataset-config configs/datasets/ppg_dalia.local.yaml
+```
+
+Run the final full Stage 5 pipeline on PPG-DaLiA:
+
+```bash
+python scripts/run_stage5_full.py \
+  --dataset-config configs/datasets/ppg_dalia.local.yaml
+```
+
+Run the final full Stage 5 pipeline on WESAD:
+
+```bash
+python scripts/run_stage5_full.py \
+  --dataset-config configs/datasets/wesad.local.yaml
+```
+
+Train and save only the tuned Stage 5 CNN checkpoint:
+
+```bash
+python scripts/run_stage5_train_cnn.py \
+  --dataset-config configs/datasets/ppg_dalia.local.yaml
+```
+
+Stage 5 outputs follow the same routing discipline as Stage 4:
+
+- canonical outputs stay in `outputs/`
+- bounded or analysis-only outputs go to `outputs/validation/<label>/`
+- reusable Stage 5 cache artifacts live under `outputs/cache/stage5/<dataset>/`
+
+Current best-supported Stage 5 conclusion:
+
+- the tuned CNN respiration model clearly outperforms the classical `RIAV` / `RIFV` / `RIBV` surrogate baseline on both datasets
+- RR estimates are usable on high-quality segments on both datasets, with stronger results on `PPG-DaLiA`
+- Stage 5 does not materially degrade the existing HR pipeline because it carries the Stage 4 HR layer forward unchanged
 
 To reproduce the Stage 2 evaluation:
 
