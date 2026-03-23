@@ -218,6 +218,16 @@ Acceptance criteria:
 Goals:
 - Detect clinically relevant but non-diagnostic events/suspicions
 
+Current status:
+- Stage 4A round 1 is now implemented as a quality-gated, rule-based HR event baseline
+- Implemented event families:
+  - `tachycardia_event`
+  - `bradycardia_event`
+  - `abrupt_change_event`
+- Stage 4A uses repository-specific ECG-backed proxy event targets for evaluation
+- Stage 4B irregular pulse screening is still unimplemented
+- Stage 4C anomaly scoring is still unimplemented
+
 Algorithms:
 - Rule-based tachycardia / bradycardia / abrupt-change event detection
 - TCN-based temporal event detector
