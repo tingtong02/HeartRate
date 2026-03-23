@@ -225,7 +225,8 @@ Current status:
   - `bradycardia_event`
   - `abrupt_change_event`
 - Stage 4A uses repository-specific ECG-backed proxy event targets for evaluation
-- Stage 4B irregular pulse screening is still unimplemented
+- Stage 4B is now implemented as a quality-gated irregular pulse screening baseline
+- Stage 4B uses a shared Stage 4 feature frame, ECG/reference-side irregularity proxy labels, a default `HistGradientBoostingClassifier`, and a rule baseline comparison
 - Stage 4C anomaly scoring is still unimplemented
 
 Algorithms:

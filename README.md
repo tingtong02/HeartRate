@@ -1,7 +1,7 @@
 # HeartRate_CNN
 
 HeartRate_CNN is a public-dataset PPG heart rate analysis project.  
-The current repository state now includes **a narrow Stage 4A quality-gated rule-based event track** on top of the Stage 0, Stage 1, Stage 2, and Stage 3 foundations.
+The current repository state now includes **a narrow Stage 4A event track and a Stage 4B irregular-pulse screening baseline** on top of the Stage 0, Stage 1, Stage 2, and Stage 3 foundations.
 
 ## Stage 3 Closure Status
 
@@ -55,6 +55,7 @@ Implemented so far:
 - a narrow Stage 3C2 robust-HR policy branch that adds local 8 s beat-derived fallback and a limited auditable `hold_previous` action on top of the same Stage 3 enhanced outputs
 - a narrow Stage 3C2.1 operating-point refinement path that keeps `robust_stage3c2_policy` as baseline and adds an analysis-only `robust_stage3c2_policy_refined` comparison row
 - a Stage 4A baseline for quality-gated rule-based HR event detection with tachycardia, bradycardia, and abrupt-change episodes
+- a Stage 4B baseline for quality-gated irregular pulse screening with a shared Stage 4 feature frame, a default `HistGradientBoostingClassifier`, and a rule baseline comparison
 - basic evaluation metrics
 - smoke test and pytest coverage
 
@@ -63,7 +64,7 @@ Still not included:
 - CNN / TCN / deep learning training
 - respiration estimation
 - frequency-domain or nonlinear HRV features
-- irregular pulse screening
+- Stage 4C anomaly scoring
 
 Current Stage 3 scope should now be treated as practically complete for this repository's narrow, CPU-first quality-aware HR layer.
 
@@ -211,6 +212,20 @@ Run the Stage 4A event baseline on WESAD:
 
 ```bash
 python scripts/run_stage4_baseline.py \
+  --dataset-config configs/datasets/wesad.local.yaml
+```
+
+Run the Stage 4B irregular screening baseline on PPG-DaLiA:
+
+```bash
+python scripts/run_stage4_irregular_baseline.py \
+  --dataset-config configs/datasets/ppg_dalia.local.yaml
+```
+
+Run the Stage 4B irregular screening baseline on WESAD:
+
+```bash
+python scripts/run_stage4_irregular_baseline.py \
   --dataset-config configs/datasets/wesad.local.yaml
 ```
 
