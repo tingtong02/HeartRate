@@ -1,0 +1,143 @@
+preprocess:
+  target_ppg_fs: 64
+  window_seconds: 8.0
+  step_seconds: 2.0
+
+eval:
+  random_seed: 42
+  test_size: 0.3
+  hr_band_bpm: [40, 180]
+
+stage1:
+  preprocess:
+    bandpass_low_hz: 0.6
+    bandpass_high_hz: 3.5
+    bandpass_order: 3
+    smooth_window_seconds: 0.20
+    smooth_polyorder: 2
+  frequency:
+    bandpass_low_hz: 0.6
+    bandpass_high_hz: 3.5
+    bandpass_order: 3
+    smooth_window_seconds: 0.20
+    smooth_polyorder: 2
+    extra_smoothing: false
+    welch_nperseg_seconds: 8.0
+    nfft_min: 2048
+    edge_margin_bpm: 5.0
+    min_peak_power_fraction: 0.10
+  time:
+    bandpass_low_hz: 0.6
+    bandpass_high_hz: 3.5
+    bandpass_order: 3
+    smooth_window_seconds: 0.20
+    smooth_polyorder: 2
+    extra_smoothing: true
+    envelope_smooth_window_seconds: 0.12
+    prominence_scale: 0.35
+    min_prominence: 0.05
+    min_peaks: 3
+    min_width_seconds: 0.08
+  fusion:
+    agreement_threshold_bpm: 6.0
+    conflict_threshold_bpm: 12.0
+
+stage3:
+  target:
+    good_error_bpm: 5.0
+    poor_error_bpm: 10.0
+  rule:
+    good_score_threshold: 0.55
+    peak_ratio_bad: 1.1
+    peak_ratio_good: 2.5
+    agreement_good_bpm: 3.0
+    agreement_bad_bpm: 12.0
+    missing_time_agreement_score: 0.0
+    diff_std_good: 0.12
+    diff_std_bad: 0.35
+    weights:
+      freq_confidence: 0.45
+      peak_ratio: 0.25
+      agreement: 0.15
+      time_confidence: 0.10
+      smoothness: 0.05
+  motion:
+    accel_std_threshold: 0.35
+    accel_range_threshold: 1.5
+  ml:
+    model_name: logistic_regression
+    c_value: 1.0
+    max_iter: 1000
+    min_retention_ratio: 0.95
+    threshold_grid: [0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80]
+    refine_threshold: true
+    refinement_radius: 0.10
+    refinement_step: 0.02
+  robust_hr_policy:
+    enabled: true
+    direct_quality_threshold: 0.55
+    direct_jump_guard_bpm: 20.0
+    fallback_enabled: true
+    fallback_variant_mode: enhanced
+    fallback_min_beats: 4
+    fallback_min_clean_ibi: 3
+    fallback_min_quality_kept_ratio: 0.35
+    fallback_use_beat_quality_filter: true
+    fallback_hr_min_bpm: 45.0
+    fallback_hr_max_bpm: 180.0
+    hold_enabled: true
+    max_hold_windows: 1
+    hold_subject_boundary_reset: true
+    hold_quality_floor: 0.45
+    hold_jump_guard_bpm: 12.0
+
+stage4_shared:
+  selected_hr_source: robust_stage3c2_policy
+  beat_variant_mode: enhanced
+  min_beats: 4
+  min_ibi_clean: 3
+  min_ref_ibi_clean: 3
+
+stage4_irregular:
+  label:
+    source: ecg_reference_ibi
+    positive_rule: any
+    min_ref_ibi_clean: 3
+    irregular_rmssd_ms: 80.0
+    irregular_pnn50: 0.35
+    irregular_ibi_cv: 0.12
+    irregular_local_deviation_ratio: 0.18
+  quality_gate:
+    mode: suppress
+    require_selected_hr_valid: true
+    require_stage3_quality_pass: true
+    stage3_quality_flag_column: ml_validity_flag
+    require_support_sufficient: true
+    disallowed_robust_sources: [none, hold_previous]
+    disallowed_robust_actions: [hold, reject]
+
+stage4_anomaly:
+  model_name: isolation_forest_anomaly
+  n_estimators: 200
+  max_samples: auto
+  max_features: 1.0
+  bootstrap: false
+  contamination: auto
+  min_reference_rows: 16
+  alert_quantile: 0.95
+  fit_reference:
+    require_quality_gate_pass: true
+    require_support_sufficient: true
+    require_proxy_support: true
+  quality_gate:
+    mode: suppress
+    require_selected_hr_valid: true
+    require_stage3_quality_pass: true
+    stage3_quality_flag_column: ml_validity_flag
+    require_support_sufficient: true
+    disallowed_robust_sources: [none, hold_previous]
+    disallowed_robust_actions: [hold, reject]
+
+output:
+  save_csv: true
+  output_dir: outputs

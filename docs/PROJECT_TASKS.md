@@ -219,30 +219,48 @@ Goals:
 - Detect clinically relevant but non-diagnostic events/suspicions
 
 Current status:
-- Stage 4A round 1 is now implemented as a quality-gated, rule-based HR event baseline
+- Stage 4 is now complete for this repository's current CPU-first implemented scope
+- Implemented Stage 4 scope includes:
+  - Stage 4A quality-gated, rule-based HR event detection
+  - Stage 4B quality-gated irregular pulse screening on a shared Stage 4 feature frame
+  - Stage 4C quality-gated anomaly scoring with `IsolationForest`
+  - a final unified Stage 4 row-wise output layer with combined suspiciousness
+  - explicit Stage 3-only versus Stage 4 comparison rows on a proxy abnormal target
 - Implemented event families:
   - `tachycardia_event`
   - `bradycardia_event`
   - `abrupt_change_event`
-- Stage 4A uses repository-specific ECG-backed proxy event targets for evaluation
-- Stage 4B is now implemented as a quality-gated irregular pulse screening baseline
-- Stage 4B uses a shared Stage 4 feature frame, ECG/reference-side irregularity proxy labels, a default `HistGradientBoostingClassifier`, and a rule baseline comparison
-- Stage 4C anomaly scoring is still unimplemented
+- Current repository default / interpretation:
+  - Stage 4A event defaults remain source-configurable and quality-gated
+  - Stage 4B default model is `HistGradientBoostingClassifier`
+  - Stage 4C default model is `IsolationForest`
+  - the final Stage 4 suspiciousness layer is interpretable, auditable, and non-diagnostic
+- Evaluation remains proxy-based and repository-specific:
+  - Stage 4A uses ECG-backed proxy HR event targets
+  - Stage 4B uses ECG/reference-side irregularity proxy labels
+  - final Stage 4 comparison rows use `proxy_abnormal_target = proxy_hr_event_target_any OR screening_proxy_target`
+- Deferred beyond current Stage 4 scope:
+  - clinical labels / diagnosis
+  - deep sequence models
+  - autoencoder anomaly models
+  - broader non-CPU-first Stage 4 extensions
 
 Algorithms:
 - Rule-based tachycardia / bradycardia / abrupt-change event detection
-- TCN-based temporal event detector
-- XGBoost-based irregular pulse screening
-- Isolation Forest / Autoencoder anomaly scoring
+- HistGradientBoosting-based irregular pulse screening
+- Isolation Forest anomaly scoring
+- interpretable combined suspiciousness fusion over event / irregular / anomaly outputs
 
 Deliverables:
 - HR event detector
 - Irregular pulse screening module
 - Anomaly score output
+- Unified Stage 4 output interface
 
 Acceptance criteria:
 - Event detection is stable and does not overfire on noisy segments
 - Screening outputs remain quality-gated
+- Stage 4 adds a more useful suspicious-segment output layer than Stage 3 quality gating alone without making clinical claims
 
 ---
 

@@ -115,6 +115,19 @@ def _safe_clip01(value: float) -> float:
     return float(np.clip(value, 0.0, 1.0))
 
 
+def compute_support_sufficient_flags(feature_frame: pd.DataFrame) -> np.ndarray:
+    if feature_frame.empty:
+        return np.array([], dtype=bool)
+    return (
+        (feature_frame["num_beats"].to_numpy(dtype=float) >= 1.0)
+        & (feature_frame["num_ibi_clean"].to_numpy(dtype=float) >= 1.0)
+        & feature_frame["ibi_is_valid"].astype(bool).to_numpy()
+        & ~feature_frame["selected_hr_missing_flag"].astype(bool).to_numpy()
+        & ~feature_frame["insufficient_beats_flag"].astype(bool).to_numpy()
+        & ~feature_frame["insufficient_clean_ibi_flag"].astype(bool).to_numpy()
+    )
+
+
 def build_irregular_proxy_labels(
     feature_frame: pd.DataFrame,
     *,
@@ -330,15 +343,7 @@ def build_screening_predictions(
     predictions["candidate_indicator_count"] = np.asarray(candidate_indicator_counts, dtype=float)
     predictions["screening_candidate_flag"] = predictions["screening_score"].to_numpy(dtype=float) >= float(threshold)
 
-    support_flags = (
-        (predictions["num_beats"].to_numpy(dtype=float) >= 1.0)
-        & (predictions["num_ibi_clean"].to_numpy(dtype=float) >= 1.0)
-        & predictions["ibi_is_valid"].astype(bool).to_numpy()
-        & ~predictions["selected_hr_missing_flag"].astype(bool).to_numpy()
-        & ~predictions["insufficient_beats_flag"].astype(bool).to_numpy()
-        & ~predictions["insufficient_clean_ibi_flag"].astype(bool).to_numpy()
-    )
-    predictions["support_sufficient_flag"] = support_flags
+    predictions["support_sufficient_flag"] = compute_support_sufficient_flags(predictions)
 
     quality_passed: list[bool] = []
     quality_reasons: list[str] = []
