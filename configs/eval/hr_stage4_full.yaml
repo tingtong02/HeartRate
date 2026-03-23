@@ -178,6 +178,7 @@ stage4_anomaly:
     disallowed_robust_actions: [hold, reject]
 
 stage4_full:
+  variant_name: default
   comparison:
     target_name: proxy_abnormal_union
     stage3_baseline_score_col: stage3_quality_suspicious_score
@@ -187,7 +188,16 @@ stage4_full:
     two_signal_bonus: 0.10
     three_signal_bonus: 0.20
 
+cache:
+  enabled: true
+  cache_dir: outputs/cache/stage4
+  rebuild: false
+  schema_version: stage4_v1
+
 output:
   save_csv: true
   output_dir: outputs
   save_feature_frame: false
+  scope: canonical
+  label: ""
+  validation_subdir: validation

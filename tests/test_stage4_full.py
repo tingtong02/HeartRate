@@ -369,8 +369,12 @@ def test_summarize_stage4_full_metrics_returns_expected_groups() -> None:
         event_metrics=_event_metrics(),
         irregular_metrics=_irregular_metrics(),
         anomaly_metrics=_anomaly_metrics(),
+        config={"variant_name": "balanced_v1_analysis"},
     )
     assert set(FULL_METRIC_COLUMNS).issubset(metrics.columns)
     assert {"event", "irregular", "anomaly", "unified", "stage3_comparison", "stratification"}.issubset(set(metrics["metric_group"]))
-    stage4_row = metrics.loc[(metrics["metric_group"] == "stage3_comparison") & (metrics["method"] == "stage4_full_default")].iloc[0]
+    stage4_row = metrics.loc[
+        (metrics["metric_group"] == "stage3_comparison")
+        & (metrics["method"] == "stage4_full_balanced_v1_analysis")
+    ].iloc[0]
     assert stage4_row["target_name"] == "proxy_abnormal_union"

@@ -401,7 +401,11 @@ def summarize_stage4_full_metrics(
     event_metrics: pd.DataFrame,
     irregular_metrics: pd.DataFrame,
     anomaly_metrics: pd.DataFrame,
+    config: dict[str, Any] | None = None,
 ) -> pd.DataFrame:
+    cfg = config or {}
+    variant_name = str(cfg.get("variant_name", "default")).strip() or "default"
+    full_method_name = f"stage4_full_{variant_name}"
     rows: list[dict[str, float | str]] = []
 
     for _, row in event_metrics.iterrows():
@@ -448,7 +452,7 @@ def summarize_stage4_full_metrics(
             _binary_metric_row(
                 split_group,
                 metric_group="unified",
-                method="stage4_full_default",
+                method=full_method_name,
                 subgroup="",
                 split_name=str(split_name),
                 target_name="proxy_abnormal_union",
@@ -508,7 +512,7 @@ def summarize_stage4_full_metrics(
             _binary_metric_row(
                 split_group,
                 metric_group="stage3_comparison",
-                method="stage4_full_default",
+                method=full_method_name,
                 subgroup="score_and_flag",
                 split_name=str(split_name),
                 target_name="proxy_abnormal_union",

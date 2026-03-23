@@ -137,3 +137,12 @@ output:
   save_csv: true
   output_dir: outputs
   save_feature_frame: false
+  scope: canonical
+  label: ""
+  validation_subdir: validation
+
+cache:
+  enabled: true
+  cache_dir: outputs/cache/stage4
+  rebuild: false
+  schema_version: stage4_v1

@@ -235,10 +235,12 @@ Current status:
   - Stage 4B default model is `HistGradientBoostingClassifier`
   - Stage 4C default model is `IsolationForest`
   - the final Stage 4 suspiciousness layer is interpretable, auditable, and non-diagnostic
+  - cache-backed reusable Stage 4 source / feature preparation and explicit canonical-vs-validation output routing are now implemented
 - Evaluation remains proxy-based and repository-specific:
   - Stage 4A uses ECG-backed proxy HR event targets
   - Stage 4B uses ECG/reference-side irregularity proxy labels
   - final Stage 4 comparison rows use `proxy_abnormal_target = proxy_hr_event_target_any OR screening_proxy_target`
+  - current best-supported evidence shows Stage 4C anomaly ranking outperforming the Stage 3-only quality baseline on stronger bounded validation, while the unified suspiciousness layer still remains more conservative and has not yet demonstrated a ranking gain over the Stage 3-only baseline
 - Deferred beyond current Stage 4 scope:
   - clinical labels / diagnosis
   - deep sequence models

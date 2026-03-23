@@ -2,31 +2,23 @@ from __future__ import annotations
 
 import argparse
 import time
-from pathlib import Path
-
-import pandas as pd
 
 from heart_rate_cnn.config import load_yaml, merge_dicts
 from heart_rate_cnn.split import train_test_subject_split
-from heart_rate_cnn.stage4_events import (
-    EVENT_TYPES,
-    PREDICTION_COLUMNS,
-    build_stage4_event_predictions,
-    summarize_stage4_event_metrics,
-)
 from heart_rate_cnn.stage4_features import (
     make_loader,
     prepare_quality_aware_source_package,
+    prepare_stage4_feature_package,
     resolve_stage4_output_dir,
 )
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run the Stage 4A quality-gated rule-based HR event baseline.")
+    parser = argparse.ArgumentParser(description="Prepare reusable Stage 4 source and feature packages.")
     parser.add_argument("--config", default="configs/base.yaml", help="Base config path.")
     parser.add_argument("--dataset-config", required=True, help="Dataset-specific config path.")
-    parser.add_argument("--eval-config", default="configs/eval/hr_stage4.yaml", help="Stage 4 eval config path.")
-    parser.add_argument("--rebuild-cache", action="store_true", help="Rebuild the Stage 4 source cache.")
+    parser.add_argument("--eval-config", default="configs/eval/hr_stage4_full.yaml", help="Stage 4 eval config path.")
+    parser.add_argument("--rebuild-cache", action="store_true", help="Rebuild Stage 4 source and feature caches.")
     parser.add_argument("--output-scope", choices=("canonical", "validation"), help="Override Stage 4 output scope.")
     parser.add_argument("--output-label", help="Override Stage 4 output label for validation outputs.")
     return parser.parse_args()
@@ -45,11 +37,15 @@ def _apply_runtime_overrides(config: dict, args: argparse.Namespace) -> dict:
 
 def _print_package_status(package_name: str, package: dict) -> None:
     cache_path = str(package.get("cache_path", ""))
+    manifest_path = str(package.get("manifest_path", ""))
     location_text = f" ({cache_path})" if cache_path else ""
     print(
         f"{package_name}: {package.get('cache_status', 'unknown')} "
         f"in {float(package.get('elapsed_seconds', 0.0)):.2f}s{location_text}"
     )
+    if manifest_path:
+        print(f"  manifest: {manifest_path}")
+
 
 def main() -> None:
     overall_start_time = time.perf_counter()
@@ -63,7 +59,7 @@ def main() -> None:
     eval_cfg = config["eval"]
     stage1_cfg = config["stage1"]
     stage3_cfg = config["stage3"]
-    stage4_cfg = config["stage4"]
+    stage4_shared_cfg = config["stage4_shared"]
     cache_cfg = config.get("cache", {})
     output_cfg = config["output"]
 
@@ -95,53 +91,31 @@ def main() -> None:
         stage3_cfg=stage3_cfg,
         cache_cfg=cache_cfg,
     )
-    train_frame = source_package["train_source_frame"]
-    eval_frame = source_package["eval_source_frame"]
-    selected_threshold = float(source_package["selected_threshold"])
+    feature_package = prepare_stage4_feature_package(
+        loader=loader,
+        dataset_name=str(dataset_cfg["name"]),
+        root_dir=str(dataset_cfg["root_dir"]),
+        train_subjects=train_subjects,
+        eval_subjects=eval_subjects,
+        preprocess_cfg=preprocess_cfg,
+        stage3_cfg=stage3_cfg,
+        stage4_shared_cfg=stage4_shared_cfg,
+        source_package=source_package,
+        cache_cfg=cache_cfg,
+    )
 
-    train_predictions = build_stage4_event_predictions(train_frame, split_name="train", config=stage4_cfg)
-    eval_predictions = build_stage4_event_predictions(eval_frame, split_name="eval", config=stage4_cfg)
-    predictions_frame = pd.concat([train_predictions, eval_predictions], ignore_index=True, sort=False)
-    metrics_frame = summarize_stage4_event_metrics(predictions_frame)
-
-    required_columns = set(PREDICTION_COLUMNS)
-    missing_prediction_columns = sorted(required_columns - set(predictions_frame.columns))
-    if missing_prediction_columns:
-        raise RuntimeError(f"Stage 4 predictions are missing required columns: {missing_prediction_columns}")
-
-    print("Stage 4 baseline completed.")
+    print("Stage 4 source preparation completed.")
     print(f"Dataset: {dataset_cfg['name']}")
     print(f"Train subjects: {train_subjects}")
     print(f"Eval subjects: {eval_subjects}")
-    print(f"Stage 3 ML threshold reused for Stage 4 defaults: {selected_threshold:.2f}")
+    print(f"Output scope: {output_cfg.get('scope', 'canonical')}")
+    if str(output_cfg.get("scope", "canonical")) == "validation":
+        print(f"Output label: {output_cfg.get('label', '')}")
+    print(f"Resolved output directory: {resolve_stage4_output_dir(output_cfg)}")
+    print(f"Stage 3 ML threshold in source package: {float(source_package['selected_threshold']):.2f}")
     _print_package_status("Stage 4 source package", source_package)
-    for split_name in ("train", "eval"):
-        split_metrics = metrics_frame.loc[
-            (metrics_frame["split"] == split_name) & (metrics_frame["event_type"].isin(EVENT_TYPES))
-        ].copy()
-        print(f"split: {split_name}")
-        for _, row in split_metrics.iterrows():
-            print(
-                "  "
-                f"{row['event_type']}: "
-                f"f1={row['f1']:.4f}, "
-                f"precision={row['precision']:.4f}, "
-                f"recall={row['recall']:.4f}, "
-                f"pred_events={int(row['num_pred_events'])}, "
-                f"eval_events={int(row['num_eval_events'])}"
-            )
-    print(f"Stage 4 event end-to-end runtime: {time.perf_counter() - overall_start_time:.2f}s")
-
-    if output_cfg.get("save_csv", False):
-        output_dir = resolve_stage4_output_dir(output_cfg)
-        output_dir.mkdir(parents=True, exist_ok=True)
-        predictions_path = output_dir / f"{dataset_cfg['name']}_stage4_event_predictions.csv"
-        metrics_path = output_dir / f"{dataset_cfg['name']}_stage4_event_metrics.csv"
-        predictions_frame.to_csv(predictions_path, index=False)
-        metrics_frame.to_csv(metrics_path, index=False)
-        print(f"Saved predictions to: {predictions_path}")
-        print(f"Saved metrics to: {metrics_path}")
-        print(f"Output directory: {output_dir}")
+    _print_package_status("Stage 4 feature package", feature_package)
+    print(f"Preparation runtime: {time.perf_counter() - overall_start_time:.2f}s")
 
 
 if __name__ == "__main__":

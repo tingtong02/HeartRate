@@ -70,6 +70,14 @@ Final unified Stage 4 defaults:
   - add `0.10` for exactly two valid signal families
   - add `0.20` for three valid signal families
 
+Stage 4 workflow defaults:
+
+- cache-enabled reusable source / feature preparation
+- canonical output scope: `outputs/`
+- bounded validation output scope: `outputs/validation/<label>/`
+- cache root: `outputs/cache/stage4`
+- full-layer default variant name: `default`
+
 ## Stage 4A Event Logic
 
 Default thresholds in `configs/eval/hr_stage4_full.yaml`:
@@ -299,7 +307,79 @@ Comparison rows explicitly contrast:
 - `stage4_anomaly_default`
 - `stage4_full_default`
 
+## Cache-Backed Workflow
+
+Stage 4 reruns are expensive mainly because they otherwise rebuild:
+
+- Stage 3-quality-aware source frames
+- Stage 4 shared feature frames
+
+This repository now supports two explicit reusable cache artifacts:
+
+- `quality_aware_source_package`
+- `stage4_feature_package`
+
+Artifact location:
+
+- `outputs/cache/stage4/<dataset>/source/<cache_key>.joblib`
+- `outputs/cache/stage4/<dataset>/feature/<cache_key>.joblib`
+- matching JSON manifests are written alongside each artifact
+
+Cache manifests record:
+
+- cache schema version
+- config hash
+- dataset metadata
+- train / eval subject lists
+- row counts
+- selected Stage 3 ML threshold
+- build timestamp
+
+Cache key inputs include:
+
+- dataset name and root path
+- sorted train / eval subject lists
+- relevant preprocessing, evaluation, Stage 1, and Stage 3 config sections for the source package
+- source package key plus `stage4_shared` settings for the feature package
+- cache schema version
+
+Cache behavior:
+
+- `scripts/prepare_stage4_sources.py` builds or reuses both packages explicitly
+- Stage 4 scripts auto-reuse matching cache artifacts unless `cache.rebuild: true` or `--rebuild-cache` is passed
+- runners print whether each package was built or reused and how long it took
+
+These cache artifacts are reusable implementation intermediates only. They are not source-of-record analysis outputs.
+
+## Output Scope Separation
+
+Stage 4 output hygiene is now explicit:
+
+- `output.scope: canonical`
+  - writes unsuffixed source-of-record files to `outputs/`
+- `output.scope: validation`
+  - requires a non-empty `output.label`
+  - writes to `outputs/validation/<label>/`
+
+This separation prevents bounded subject-slice runs from silently overwriting canonical output files.
+
 ## How To Run
+
+Prepare reusable Stage 4 source and feature packages:
+
+```bash
+python scripts/prepare_stage4_sources.py \
+  --dataset-config configs/datasets/ppg_dalia.local.yaml
+```
+
+Prepare bounded-validation packages explicitly:
+
+```bash
+python scripts/prepare_stage4_sources.py \
+  --dataset-config /tmp/ppg_dalia_stage4_medium6.yaml \
+  --output-scope validation \
+  --output-label bounded_medium6_seed42
+```
 
 Stage 4A on PPG-DaLiA:
 
@@ -342,6 +422,91 @@ Final full Stage 4 pipeline on WESAD:
 python scripts/run_stage4_full.py \
   --dataset-config configs/datasets/wesad.local.yaml
 ```
+
+Final full Stage 4 bounded validation on PPG-DaLiA:
+
+```bash
+python scripts/run_stage4_full.py \
+  --dataset-config /tmp/ppg_dalia_stage4_medium6.yaml \
+  --output-scope validation \
+  --output-label bounded_medium6_seed42
+```
+
+Analysis-only fusion check using cached inputs:
+
+```bash
+python scripts/run_stage4_full.py \
+  --dataset-config /tmp/ppg_dalia_stage4_medium6.yaml \
+  --eval-config /tmp/hr_stage4_full_balanced_v1.yaml \
+  --output-scope validation \
+  --output-label fusion_balanced_v1
+```
+
+## Stronger Validation Summary
+
+Current strongest completed validation in this refinement round used fixed subject-wise `medium6` bounded splits.
+
+`PPG-DaLiA`
+
+- subjects: `S1,S10,S11,S12,S13,S14`
+- train: `S11,S12,S13,S14`
+- eval: `S1,S10`
+- one-time prep:
+  - source package build `296.66 s`
+  - feature package build `227.60 s`
+  - total prep `524.31 s`
+- cached rerun:
+  - source package reuse `0.01 s`
+  - feature package reuse `0.01 s`
+  - full pipeline runtime `23.64 s`
+- eval comparison:
+  - `stage3_quality_only`: `AUPRC 0.5729`, `AUROC 0.6203`, `precision 0.5755`, `recall 0.6949`
+  - `stage4_anomaly_default`: `AUPRC 0.6090`, `AUROC 0.6584`, `precision 0.7008`, `recall 0.0562`
+  - `stage4_full_default`: `AUPRC 0.5309`, `AUROC 0.4338`, `precision 0.4978`, `recall 0.2288`
+
+`WESAD`
+
+- subjects: `S10,S11,S13,S14,S15,S16`
+- train: `S13,S14,S15,S16`
+- eval: `S10,S11`
+- one-time prep:
+  - source package build `176.58 s`
+  - feature package build `134.60 s`
+  - total prep `311.21 s`
+- cached rerun:
+  - source package reuse `0.01 s`
+  - feature package reuse `0.01 s`
+  - full pipeline runtime `14.46 s`
+- eval comparison:
+  - `stage3_quality_only`: `AUPRC 0.6142`, `AUROC 0.6600`, `precision 0.6372`, `recall 0.6442`
+  - `stage4_anomaly_default`: `AUPRC 0.6548`, `AUROC 0.6933`, `precision 0.6486`, `recall 0.0976`
+  - `stage4_full_default`: `AUPRC 0.5352`, `AUROC 0.4057`, `precision 0.6444`, `recall 0.2426`
+
+Conservative analysis-only fusion check:
+
+- variant name: `balanced_v1_analysis`
+- config-only changes:
+  - `event_min_score = 0.45`
+  - `two_signal_bonus = 0.05`
+  - `three_signal_bonus = 0.10`
+- result:
+  - `PPG-DaLiA`: `AUPRC 0.5254`, `AUROC 0.4321`
+  - `WESAD`: `AUPRC 0.5345`, `AUROC 0.4053`
+- interpretation:
+  - this variant underperformed the current default on both datasets
+  - it did not meet the promotion rule and remains analysis-only
+
+Canonical full-dataset Stage 4 reruns were not completed in this refinement round. The medium6 results above are the current best-supported validation evidence and should not be confused with canonical full-dataset source-of-record outputs.
+
+## Current Best-Supported Conclusions
+
+- Stage 4 cache-backed preparation materially improves repeated-run practicality.
+- Stage 4C anomaly scoring remains the clearest Stage 4 gain beyond the Stage 3-only quality baseline on the stronger bounded validation now available.
+- The final unified Stage 4 suspiciousness default remains informative and auditable, but it still underperforms the simple Stage 3-only quality suspiciousness baseline on current `medium6` eval runs.
+- The tested `balanced_v1_analysis` fusion adjustment did not improve that outcome and was not promoted.
+- The repository should therefore continue to present:
+  - anomaly-layer gains as the best-supported incremental Stage 4 benefit
+  - unified-fusion results as useful stratification output, not as a demonstrated ranking improvement over the Stage 3-only baseline
 
 ## Interpretation And Limitations
 

@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import math
+import time
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
+from joblib import dump as joblib_dump
+from joblib import load as joblib_load
 
 from heart_rate_cnn.data import PPGDaliaLoader, WESADLoader
 from heart_rate_cnn.preprocess import build_window_samples, detect_ecg_peaks, trim_record_to_common_duration
@@ -103,6 +110,185 @@ def safe_bool(value: Any) -> bool:
     if pd.isna(value):
         return False
     return bool(value)
+
+
+def resolve_stage4_output_dir(output_cfg: dict[str, Any] | None = None) -> Path:
+    cfg = output_cfg or {}
+    base_dir = Path(str(cfg.get("output_dir", "outputs"))).expanduser()
+    scope = str(cfg.get("scope", "canonical")).strip() or "canonical"
+    if scope == "canonical":
+        return base_dir
+    if scope == "validation":
+        label = str(cfg.get("label", "")).strip()
+        if not label:
+            raise ValueError("Stage 4 validation outputs require a non-empty output.label.")
+        validation_subdir = str(cfg.get("validation_subdir", "validation")).strip() or "validation"
+        return base_dir / validation_subdir / label
+    raise ValueError(f"Unsupported Stage 4 output scope: {scope}")
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, set):
+        return [_json_safe(item) for item in sorted(value)]
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return value
+
+
+def _stable_hash(payload: dict[str, Any]) -> str:
+    serialized = json.dumps(_json_safe(payload), sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()[:20]
+
+
+def _cache_defaults(cache_cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+    cfg = cache_cfg or {}
+    return {
+        "enabled": bool(cfg.get("enabled", True)),
+        "cache_dir": str(cfg.get("cache_dir", "outputs/cache/stage4")),
+        "rebuild": bool(cfg.get("rebuild", False)),
+        "schema_version": str(cfg.get("schema_version", "stage4_v1")),
+    }
+
+
+def _cache_artifact_paths(
+    *,
+    cache_cfg: dict[str, Any],
+    dataset_name: str,
+    package_subdir: str,
+    cache_key: str,
+) -> tuple[Path, Path]:
+    cache_root = Path(str(cache_cfg["cache_dir"])).expanduser()
+    package_dir = cache_root / str(dataset_name) / str(package_subdir)
+    artifact_path = package_dir / f"{cache_key}.joblib"
+    manifest_path = package_dir / f"{cache_key}.json"
+    return artifact_path, manifest_path
+
+
+def _read_cache_manifest(manifest_path: Path) -> dict[str, Any]:
+    if not manifest_path.exists():
+        return {}
+    with manifest_path.open("r", encoding="utf-8") as handle:
+        data = json.load(handle)
+    if not isinstance(data, dict):
+        raise ValueError(f"Cache manifest at {manifest_path} must be a mapping.")
+    return data
+
+
+def _write_cache_manifest(manifest_path: Path, manifest: dict[str, Any]) -> None:
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    with manifest_path.open("w", encoding="utf-8") as handle:
+        json.dump(_json_safe(manifest), handle, indent=2, sort_keys=True)
+        handle.write("\n")
+
+
+def _build_identity_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty:
+        return pd.DataFrame(columns=list(STAGE4_IDENTITY_COLUMNS))
+    available = [column_name for column_name in STAGE4_IDENTITY_COLUMNS if column_name in frame.columns]
+    return frame.loc[:, available].copy().reset_index(drop=True)
+
+
+def _attach_cache_metadata(
+    package: dict[str, Any],
+    *,
+    cache_key: str,
+    cache_status: str,
+    cache_path: Path | None,
+    manifest_path: Path | None,
+    elapsed_seconds: float,
+    config_hash: str,
+    manifest: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    enriched = dict(package)
+    enriched["cache_key"] = cache_key
+    enriched["config_hash"] = config_hash
+    enriched["cache_status"] = str(cache_status)
+    enriched["cache_path"] = str(cache_path) if cache_path is not None else ""
+    enriched["manifest_path"] = str(manifest_path) if manifest_path is not None else ""
+    enriched["elapsed_seconds"] = float(elapsed_seconds)
+    if manifest is not None:
+        enriched["manifest"] = manifest
+    return enriched
+
+
+def _load_or_build_stage4_package(
+    *,
+    dataset_name: str,
+    package_subdir: str,
+    package_name: str,
+    cache_cfg: dict[str, Any] | None,
+    cache_payload: dict[str, Any],
+    build_fn,
+    manifest_builder,
+) -> dict[str, Any]:
+    normalized_cache_cfg = _cache_defaults(cache_cfg)
+    config_hash = _stable_hash(cache_payload)
+    cache_key = config_hash
+    artifact_path: Path | None = None
+    manifest_path: Path | None = None
+
+    if normalized_cache_cfg["enabled"]:
+        artifact_path, manifest_path = _cache_artifact_paths(
+            cache_cfg=normalized_cache_cfg,
+            dataset_name=dataset_name,
+            package_subdir=package_subdir,
+            cache_key=cache_key,
+        )
+        if artifact_path.exists() and not normalized_cache_cfg["rebuild"]:
+            start_time = time.perf_counter()
+            cached_package = joblib_load(artifact_path)
+            elapsed_seconds = time.perf_counter() - start_time
+            manifest = _read_cache_manifest(manifest_path)
+            return _attach_cache_metadata(
+                cached_package,
+                cache_key=cache_key,
+                cache_status="reused",
+                cache_path=artifact_path,
+                manifest_path=manifest_path,
+                elapsed_seconds=elapsed_seconds,
+                config_hash=config_hash,
+                manifest=manifest,
+            )
+
+    start_time = time.perf_counter()
+    package = build_fn()
+    elapsed_seconds = time.perf_counter() - start_time
+
+    manifest = manifest_builder(package)
+    manifest["package_name"] = package_name
+    manifest["cache_key"] = cache_key
+    manifest["config_hash"] = config_hash
+    manifest["schema_version"] = str(normalized_cache_cfg["schema_version"])
+    manifest["built_at_utc"] = datetime.now(timezone.utc).isoformat()
+
+    if normalized_cache_cfg["enabled"] and artifact_path is not None and manifest_path is not None:
+        artifact_path.parent.mkdir(parents=True, exist_ok=True)
+        joblib_dump(package, artifact_path)
+        _write_cache_manifest(manifest_path, manifest)
+        cache_status = "built"
+    else:
+        cache_status = "disabled"
+        artifact_path = None
+        manifest_path = None
+
+    return _attach_cache_metadata(
+        package,
+        cache_key=cache_key,
+        cache_status=cache_status,
+        cache_path=artifact_path,
+        manifest_path=manifest_path,
+        elapsed_seconds=elapsed_seconds,
+        config_hash=config_hash,
+        manifest=manifest,
+    )
 
 
 def make_loader(dataset_name: str, root_dir: str):
@@ -413,6 +599,101 @@ def build_quality_aware_source_frames(
         eval_frame[column_name] = eval_robust[column_name].tolist()
 
     return train_frame, eval_frame, train_windows, eval_windows, selected_threshold
+
+
+def _build_quality_aware_source_package_from_scratch(
+    *,
+    loader,
+    train_subjects: list[str],
+    eval_subjects: list[str],
+    preprocess_cfg: dict[str, Any],
+    eval_cfg: dict[str, Any],
+    stage1_cfg: dict[str, Any],
+    stage3_cfg: dict[str, Any],
+) -> dict[str, Any]:
+    train_source_frame, eval_source_frame, _, _, selected_threshold = build_quality_aware_source_frames(
+        loader=loader,
+        train_subjects=train_subjects,
+        eval_subjects=eval_subjects,
+        preprocess_cfg=preprocess_cfg,
+        eval_cfg=eval_cfg,
+        stage1_cfg=stage1_cfg,
+        stage3_cfg=stage3_cfg,
+    )
+    return {
+        "train_subjects": list(train_subjects),
+        "eval_subjects": list(eval_subjects),
+        "selected_threshold": float(selected_threshold),
+        "train_source_frame": train_source_frame,
+        "eval_source_frame": eval_source_frame,
+        "train_window_identity_frame": _build_identity_frame(train_source_frame),
+        "eval_window_identity_frame": _build_identity_frame(eval_source_frame),
+    }
+
+
+def prepare_quality_aware_source_package(
+    *,
+    loader,
+    dataset_name: str,
+    root_dir: str,
+    train_subjects: list[str],
+    eval_subjects: list[str],
+    preprocess_cfg: dict[str, Any],
+    eval_cfg: dict[str, Any],
+    stage1_cfg: dict[str, Any],
+    stage3_cfg: dict[str, Any],
+    cache_cfg: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    train_subjects_sorted = sorted(str(subject_id) for subject_id in train_subjects)
+    eval_subjects_sorted = sorted(str(subject_id) for subject_id in eval_subjects)
+    cache_payload = {
+        "schema_version": _cache_defaults(cache_cfg)["schema_version"],
+        "package_name": "quality_aware_source_package",
+        "dataset_name": str(dataset_name),
+        "root_dir": str(root_dir),
+        "train_subjects": train_subjects_sorted,
+        "eval_subjects": eval_subjects_sorted,
+        "preprocess": preprocess_cfg,
+        "eval": eval_cfg,
+        "stage1": stage1_cfg,
+        "stage3": stage3_cfg,
+    }
+
+    def _build_package() -> dict[str, Any]:
+        return _build_quality_aware_source_package_from_scratch(
+            loader=loader,
+            train_subjects=train_subjects_sorted,
+            eval_subjects=eval_subjects_sorted,
+            preprocess_cfg=preprocess_cfg,
+            eval_cfg=eval_cfg,
+            stage1_cfg=stage1_cfg,
+            stage3_cfg=stage3_cfg,
+        )
+
+    def _manifest(package: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "dataset_name": str(dataset_name),
+            "root_dir": str(root_dir),
+            "train_subjects": list(train_subjects_sorted),
+            "eval_subjects": list(eval_subjects_sorted),
+            "selected_threshold": float(package["selected_threshold"]),
+            "row_counts": {
+                "train_source_frame": int(package["train_source_frame"].shape[0]),
+                "eval_source_frame": int(package["eval_source_frame"].shape[0]),
+                "train_window_identity_frame": int(package["train_window_identity_frame"].shape[0]),
+                "eval_window_identity_frame": int(package["eval_window_identity_frame"].shape[0]),
+            },
+        }
+
+    return _load_or_build_stage4_package(
+        dataset_name=str(dataset_name),
+        package_subdir="source",
+        package_name="quality_aware_source_package",
+        cache_cfg=cache_cfg,
+        cache_payload=cache_payload,
+        build_fn=_build_package,
+        manifest_builder=_manifest,
+    )
 
 
 def _build_ibi_configs(
@@ -757,3 +1038,105 @@ def build_stage4_shared_feature_frame(
     if not feature_frame.empty:
         feature_frame = feature_frame.sort_values(by=["split", "subject_id", "window_index", "start_time_s"]).reset_index(drop=True)
     return feature_frame
+
+
+def _build_stage4_feature_package_from_scratch(
+    *,
+    loader,
+    train_subjects: list[str],
+    eval_subjects: list[str],
+    preprocess_cfg: dict[str, Any],
+    stage3_cfg: dict[str, Any],
+    stage4_shared_cfg: dict[str, Any],
+    source_package: dict[str, Any],
+) -> dict[str, Any]:
+    train_feature_frame = build_stage4_shared_feature_frame(
+        loader=loader,
+        subject_ids=train_subjects,
+        split_name="train",
+        preprocess_cfg=preprocess_cfg,
+        stage3_cfg=stage3_cfg,
+        stage4_shared_cfg=stage4_shared_cfg,
+        source_frame=source_package["train_source_frame"],
+    )
+    eval_feature_frame = build_stage4_shared_feature_frame(
+        loader=loader,
+        subject_ids=eval_subjects,
+        split_name="eval",
+        preprocess_cfg=preprocess_cfg,
+        stage3_cfg=stage3_cfg,
+        stage4_shared_cfg=stage4_shared_cfg,
+        source_frame=source_package["eval_source_frame"],
+    )
+    return {
+        "train_subjects": list(train_subjects),
+        "eval_subjects": list(eval_subjects),
+        "selected_hr_source": str(stage4_shared_cfg.get("selected_hr_source", "robust_stage3c2_policy")),
+        "source_package_key": str(source_package.get("cache_key", "")),
+        "train_feature_frame": train_feature_frame,
+        "eval_feature_frame": eval_feature_frame,
+    }
+
+
+def prepare_stage4_feature_package(
+    *,
+    loader,
+    dataset_name: str,
+    root_dir: str,
+    train_subjects: list[str],
+    eval_subjects: list[str],
+    preprocess_cfg: dict[str, Any],
+    stage3_cfg: dict[str, Any],
+    stage4_shared_cfg: dict[str, Any],
+    source_package: dict[str, Any],
+    cache_cfg: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    train_subjects_sorted = sorted(str(subject_id) for subject_id in train_subjects)
+    eval_subjects_sorted = sorted(str(subject_id) for subject_id in eval_subjects)
+    cache_payload = {
+        "schema_version": _cache_defaults(cache_cfg)["schema_version"],
+        "package_name": "stage4_feature_package",
+        "dataset_name": str(dataset_name),
+        "root_dir": str(root_dir),
+        "train_subjects": train_subjects_sorted,
+        "eval_subjects": eval_subjects_sorted,
+        "source_package_key": str(source_package.get("cache_key", source_package.get("config_hash", ""))),
+        "preprocess": preprocess_cfg,
+        "stage3": stage3_cfg,
+        "stage4_shared": stage4_shared_cfg,
+    }
+
+    def _build_package() -> dict[str, Any]:
+        return _build_stage4_feature_package_from_scratch(
+            loader=loader,
+            train_subjects=train_subjects_sorted,
+            eval_subjects=eval_subjects_sorted,
+            preprocess_cfg=preprocess_cfg,
+            stage3_cfg=stage3_cfg,
+            stage4_shared_cfg=stage4_shared_cfg,
+            source_package=source_package,
+        )
+
+    def _manifest(package: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "dataset_name": str(dataset_name),
+            "root_dir": str(root_dir),
+            "train_subjects": list(train_subjects_sorted),
+            "eval_subjects": list(eval_subjects_sorted),
+            "selected_hr_source": str(package["selected_hr_source"]),
+            "source_package_key": str(package["source_package_key"]),
+            "row_counts": {
+                "train_feature_frame": int(package["train_feature_frame"].shape[0]),
+                "eval_feature_frame": int(package["eval_feature_frame"].shape[0]),
+            },
+        }
+
+    return _load_or_build_stage4_package(
+        dataset_name=str(dataset_name),
+        package_subdir="feature",
+        package_name="stage4_feature_package",
+        cache_cfg=cache_cfg,
+        cache_payload=cache_payload,
+        build_fn=_build_package,
+        manifest_builder=_manifest,
+    )

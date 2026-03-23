@@ -247,6 +247,30 @@ python scripts/run_stage4_full.py \
   --dataset-config configs/datasets/wesad.local.yaml
 ```
 
+Prepare reusable Stage 4 source and feature packages before repeated validation runs:
+
+```bash
+python scripts/prepare_stage4_sources.py \
+  --dataset-config configs/datasets/ppg_dalia.local.yaml
+```
+
+Run a bounded validation without touching canonical output files:
+
+```bash
+python scripts/run_stage4_full.py \
+  --dataset-config /tmp/ppg_dalia_stage4_medium6.yaml \
+  --output-scope validation \
+  --output-label bounded_medium6_seed42
+```
+
+Stage 4 output routing now follows two explicit scopes:
+
+- canonical runs write unsuffixed source-of-record files to `outputs/`
+- bounded validation runs write to `outputs/validation/<label>/`
+- reusable cache artifacts live under `outputs/cache/stage4/<dataset>/`
+
+The Stage 4 prep script and all Stage 4 runners will reuse matching cached source and feature packages unless `--rebuild-cache` is passed.
+
 To reproduce the Stage 2 evaluation:
 
 - create local dataset configs the same way as Stage 0 / Stage 1
@@ -283,6 +307,40 @@ To reproduce the Stage 3 enhancement round fairly:
 - the Stage 3C2 beat fallback is computed locally on each Stage 1 8 s window using the existing Stage 2 beat / IBI functions
 - `hold_previous` is intentionally limited, resets at subject boundaries, and is reported explicitly in the predictions CSV rather than acting as hidden smoothing
 - use `outputs/{dataset}_stage3_enhanced_policy_sweep.csv` to inspect the Stage 3C2.1 error / coverage / jump tradeoff explicitly
+
+## Stage 4 Validation Workflow
+
+Recommended order for Stage 4 reruns:
+
+1. prepare reusable source and feature packages once with `prepare_stage4_sources.py`
+2. rerun `run_stage4_full.py` for the same dataset / split / config and confirm cache reuse
+3. use `--output-scope validation --output-label <label>` for bounded validation
+4. reserve plain `outputs/` for canonical full-dataset runs only
+
+The current stronger bounded validation label is `bounded_medium6_seed42`.
+
+Medium6 subject sets used in the latest Stage 4 refinement round:
+
+- `PPG-DaLiA`: `S1,S10,S11,S12,S13,S14`
+  - train: `S11,S12,S13,S14`
+  - eval: `S1,S10`
+- `WESAD`: `S10,S11,S13,S14,S15,S16`
+  - train: `S13,S14,S15,S16`
+  - eval: `S10,S11`
+
+Current best-supported Stage 4 conclusions from those stronger bounded runs:
+
+- cache-backed reruns are materially cheaper than rebuilds
+  - `PPG-DaLiA`: one-time prep `524.31 s`, cached full rerun `23.64 s`
+  - `WESAD`: one-time prep `311.21 s`, cached full rerun `14.46 s`
+- Stage 4C anomaly ranking remains the clearest incremental gain beyond the Stage 3-only quality baseline
+  - `PPG-DaLiA` eval: Stage 3 baseline `AUPRC 0.5729`, `AUROC 0.6203`; Stage 4 anomaly `AUPRC 0.6090`, `AUROC 0.6584`
+  - `WESAD` eval: Stage 3 baseline `AUPRC 0.6142`, `AUROC 0.6600`; Stage 4 anomaly `AUPRC 0.6548`, `AUROC 0.6933`
+- the current unified Stage 4 suspiciousness default still underperforms the simple Stage 3-only quality baseline on these stronger bounded runs
+  - `PPG-DaLiA` eval: Stage 4 unified `AUPRC 0.5309`, `AUROC 0.4338`
+  - `WESAD` eval: Stage 4 unified `AUPRC 0.5352`, `AUROC 0.4057`
+- one conservative analysis-only fusion variant (`balanced_v1_analysis`) also underperformed the current default on both datasets and was not promoted
+- canonical full-dataset Stage 4 reruns remain pending; bounded validation artifacts should not be mistaken for source-of-record canonical outputs
 
 ## Stage 1 Results
 

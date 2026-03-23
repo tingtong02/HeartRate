@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import time
 from pathlib import Path
 
 import pandas as pd
@@ -21,9 +22,10 @@ from heart_rate_cnn.stage4_events import (
 )
 from heart_rate_cnn.stage4_features import (
     STAGE4_IDENTITY_COLUMNS,
-    build_quality_aware_source_frames,
-    build_stage4_shared_feature_frame,
     make_loader,
+    prepare_quality_aware_source_package,
+    prepare_stage4_feature_package,
+    resolve_stage4_output_dir,
 )
 from heart_rate_cnn.stage4_full import (
     FULL_METRIC_COLUMNS,
@@ -50,7 +52,30 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--config", default="configs/base.yaml", help="Base config path.")
     parser.add_argument("--dataset-config", required=True, help="Dataset-specific config path.")
     parser.add_argument("--eval-config", default="configs/eval/hr_stage4_full.yaml", help="Stage 4 full eval config path.")
+    parser.add_argument("--rebuild-cache", action="store_true", help="Rebuild Stage 4 source and feature caches.")
+    parser.add_argument("--output-scope", choices=("canonical", "validation"), help="Override Stage 4 output scope.")
+    parser.add_argument("--output-label", help="Override Stage 4 output label for validation outputs.")
     return parser.parse_args()
+
+
+def _apply_runtime_overrides(config: dict, args: argparse.Namespace) -> dict:
+    updated = config
+    if args.rebuild_cache:
+        updated = merge_dicts(updated, {"cache": {"rebuild": True}})
+    if args.output_scope is not None:
+        updated = merge_dicts(updated, {"output": {"scope": str(args.output_scope)}})
+    if args.output_label is not None:
+        updated = merge_dicts(updated, {"output": {"label": str(args.output_label)}})
+    return updated
+
+
+def _print_package_status(package_name: str, package: dict) -> None:
+    cache_path = str(package.get("cache_path", ""))
+    location_text = f" ({cache_path})" if cache_path else ""
+    print(
+        f"{package_name}: {package.get('cache_status', 'unknown')} "
+        f"in {float(package.get('elapsed_seconds', 0.0)):.2f}s{location_text}"
+    )
 
 
 def _build_irregular_predictions(
@@ -126,9 +151,11 @@ def _build_anomaly_base_frame(
 
 
 def main() -> None:
+    overall_start_time = time.perf_counter()
     args = parse_args()
     config = merge_dicts(load_yaml(args.config), load_yaml(args.dataset_config))
     config = merge_dicts(config, load_yaml(args.eval_config))
+    config = _apply_runtime_overrides(config, args)
 
     dataset_cfg = config["dataset"]
     preprocess_cfg = config["preprocess"]
@@ -140,6 +167,7 @@ def main() -> None:
     stage4_irregular_cfg = config["stage4_irregular"]
     stage4_anomaly_cfg = config["stage4_anomaly"]
     stage4_full_cfg = config["stage4_full"]
+    cache_cfg = config.get("cache", {})
     output_cfg = config["output"]
 
     loader = make_loader(dataset_cfg["name"], dataset_cfg["root_dir"])
@@ -158,15 +186,21 @@ def main() -> None:
     train_subjects = split.train_subjects
     eval_subjects = split.test_subjects if split.test_subjects else split.train_subjects
 
-    train_source_frame, eval_source_frame, _, _, selected_threshold = build_quality_aware_source_frames(
+    source_package = prepare_quality_aware_source_package(
         loader=loader,
+        dataset_name=str(dataset_cfg["name"]),
+        root_dir=str(dataset_cfg["root_dir"]),
         train_subjects=train_subjects,
         eval_subjects=eval_subjects,
         preprocess_cfg=preprocess_cfg,
         eval_cfg=eval_cfg,
         stage1_cfg=stage1_cfg,
         stage3_cfg=stage3_cfg,
+        cache_cfg=cache_cfg,
     )
+    train_source_frame = source_package["train_source_frame"]
+    eval_source_frame = source_package["eval_source_frame"]
+    selected_threshold = float(source_package["selected_threshold"])
 
     train_event_predictions = build_stage4_event_predictions(train_source_frame, split_name="train", config=stage4_event_cfg)
     eval_event_predictions = build_stage4_event_predictions(eval_source_frame, split_name="eval", config=stage4_event_cfg)
@@ -174,24 +208,20 @@ def main() -> None:
     event_metrics = summarize_stage4_event_metrics(event_predictions)
     event_summary = collapse_stage4_event_predictions(event_predictions)
 
-    train_feature_frame = build_stage4_shared_feature_frame(
+    feature_package = prepare_stage4_feature_package(
         loader=loader,
-        subject_ids=train_subjects,
-        split_name="train",
+        dataset_name=str(dataset_cfg["name"]),
+        root_dir=str(dataset_cfg["root_dir"]),
+        train_subjects=train_subjects,
+        eval_subjects=eval_subjects,
         preprocess_cfg=preprocess_cfg,
         stage3_cfg=stage3_cfg,
         stage4_shared_cfg=stage4_shared_cfg,
-        source_frame=train_source_frame,
+        source_package=source_package,
+        cache_cfg=cache_cfg,
     )
-    eval_feature_frame = build_stage4_shared_feature_frame(
-        loader=loader,
-        subject_ids=eval_subjects,
-        split_name="eval",
-        preprocess_cfg=preprocess_cfg,
-        stage3_cfg=stage3_cfg,
-        stage4_shared_cfg=stage4_shared_cfg,
-        source_frame=eval_source_frame,
-    )
+    train_feature_frame = feature_package["train_feature_frame"]
+    eval_feature_frame = feature_package["eval_feature_frame"]
     train_feature_frame = build_irregular_proxy_labels(train_feature_frame, config=stage4_irregular_cfg)
     eval_feature_frame = build_irregular_proxy_labels(eval_feature_frame, config=stage4_irregular_cfg)
 
@@ -247,6 +277,7 @@ def main() -> None:
         event_metrics=event_metrics,
         irregular_metrics=irregular_metrics,
         anomaly_metrics=anomaly_metrics,
+        config=stage4_full_cfg,
     )
 
     required_output_sets = [
@@ -265,9 +296,12 @@ def main() -> None:
 
     print("Final Stage 4 pipeline completed.")
     print(f"Dataset: {dataset_cfg['name']}")
-    print(f"Train subjects: {len(train_subjects)}")
-    print(f"Eval subjects: {len(eval_subjects)}")
+    print(f"Train subjects: {train_subjects}")
+    print(f"Eval subjects: {eval_subjects}")
     print(f"Stage 3 ML threshold reused upstream: {selected_threshold:.2f}")
+    print(f"Stage 4 unified variant: {str(stage4_full_cfg.get('variant_name', 'default')).strip() or 'default'}")
+    _print_package_status("Stage 4 source package", source_package)
+    _print_package_status("Stage 4 feature package", feature_package)
     eval_stage3 = full_metrics.loc[
         (full_metrics["metric_group"] == "stage3_comparison")
         & (full_metrics["split"] == "eval")
@@ -276,7 +310,7 @@ def main() -> None:
     eval_stage4 = full_metrics.loc[
         (full_metrics["metric_group"] == "stage3_comparison")
         & (full_metrics["split"] == "eval")
-        & (full_metrics["method"] == "stage4_full_default")
+        & (full_metrics["method"] == f"stage4_full_{str(stage4_full_cfg.get('variant_name', 'default')).strip() or 'default'}")
     ].copy()
     eval_anomaly = full_metrics.loc[
         (full_metrics["metric_group"] == "stage3_comparison")
@@ -304,9 +338,10 @@ def main() -> None:
             f"Stage 4 anomaly: auprc={row['auprc']:.4f}, auroc={row['auroc']:.4f}, "
             f"precision={row['precision']:.4f}, recall={row['recall']:.4f}"
         )
+    print(f"Stage 4 end-to-end runtime: {time.perf_counter() - overall_start_time:.2f}s")
 
     if output_cfg.get("save_csv", False):
-        output_dir = Path(output_cfg["output_dir"])
+        output_dir = resolve_stage4_output_dir(output_cfg)
         output_dir.mkdir(parents=True, exist_ok=True)
         dataset_name = str(dataset_cfg["name"])
         output_map = {
@@ -327,6 +362,7 @@ def main() -> None:
             feature_path = output_dir / f"{dataset_name}_stage4_feature_frame.csv"
             combined_feature_frame.to_csv(feature_path, index=False)
             print(f"Saved {feature_path.name}")
+        print(f"Output directory: {output_dir}")
 
 
 if __name__ == "__main__":
