@@ -1,0 +1,6 @@
+stage4_full:
+  variant_name: balanced_v1_analysis
+  suspicion:
+    event_min_score: 0.45
+    two_signal_bonus: 0.05
+    three_signal_bonus: 0.10

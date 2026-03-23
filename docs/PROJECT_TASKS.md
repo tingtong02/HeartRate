@@ -240,7 +240,9 @@ Current status:
   - Stage 4A uses ECG-backed proxy HR event targets
   - Stage 4B uses ECG/reference-side irregularity proxy labels
   - final Stage 4 comparison rows use `proxy_abnormal_target = proxy_hr_event_target_any OR screening_proxy_target`
-  - current best-supported evidence shows Stage 4C anomaly ranking outperforming the Stage 3-only quality baseline on stronger bounded validation, while the unified suspiciousness layer still remains more conservative and has not yet demonstrated a ranking gain over the Stage 3-only baseline
+  - canonical full-dataset closure runs are now completed and stored as the unsuffixed source-of-record files in `outputs/`
+  - canonical evidence shows Stage 4C anomaly as the strongest standalone Stage 4 component, but with mixed cross-dataset ranking utility versus the Stage 3-only quality baseline
+  - the unified suspiciousness layer remains useful for stratification and auditability, but it has still not demonstrated a ranking gain over the Stage 3-only baseline
 - Deferred beyond current Stage 4 scope:
   - clinical labels / diagnosis
   - deep sequence models

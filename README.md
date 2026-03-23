@@ -317,6 +317,12 @@ Recommended order for Stage 4 reruns:
 3. use `--output-scope validation --output-label <label>` for bounded validation
 4. reserve plain `outputs/` for canonical full-dataset runs only
 
+Current output hygiene:
+
+- canonical full-dataset source-of-record outputs live in `outputs/`
+- bounded validation outputs live in `outputs/validation/<label>/`
+- cache artifacts live in `outputs/cache/stage4/<dataset>/` and are reusable intermediates, not source-of-record outputs
+
 The current stronger bounded validation label is `bounded_medium6_seed42`.
 
 Medium6 subject sets used in the latest Stage 4 refinement round:
@@ -328,19 +334,37 @@ Medium6 subject sets used in the latest Stage 4 refinement round:
   - train: `S13,S14,S15,S16`
   - eval: `S10,S11`
 
-Current best-supported Stage 4 conclusions from those stronger bounded runs:
+Bounded validation remains useful for quick reruns and fusion analysis, but canonical full-dataset Stage 4 reruns have now been completed for both datasets.
 
-- cache-backed reruns are materially cheaper than rebuilds
-  - `PPG-DaLiA`: one-time prep `524.31 s`, cached full rerun `23.64 s`
-  - `WESAD`: one-time prep `311.21 s`, cached full rerun `14.46 s`
-- Stage 4C anomaly ranking remains the clearest incremental gain beyond the Stage 3-only quality baseline
-  - `PPG-DaLiA` eval: Stage 3 baseline `AUPRC 0.5729`, `AUROC 0.6203`; Stage 4 anomaly `AUPRC 0.6090`, `AUROC 0.6584`
-  - `WESAD` eval: Stage 3 baseline `AUPRC 0.6142`, `AUROC 0.6600`; Stage 4 anomaly `AUPRC 0.6548`, `AUROC 0.6933`
-- the current unified Stage 4 suspiciousness default still underperforms the simple Stage 3-only quality baseline on these stronger bounded runs
-  - `PPG-DaLiA` eval: Stage 4 unified `AUPRC 0.5309`, `AUROC 0.4338`
-  - `WESAD` eval: Stage 4 unified `AUPRC 0.5352`, `AUROC 0.4057`
-- one conservative analysis-only fusion variant (`balanced_v1_analysis`) also underperformed the current default on both datasets and was not promoted
-- canonical full-dataset Stage 4 reruns remain pending; bounded validation artifacts should not be mistaken for source-of-record canonical outputs
+Canonical full-dataset subject-wise Stage 4 closure runs used these splits:
+
+- `PPG-DaLiA`
+  - train: `S10,S11,S12,S13,S15,S2,S3,S5,S7,S9`
+  - eval: `S1,S14,S4,S6,S8`
+- `WESAD`
+  - train: `S11,S13,S14,S15,S17,S2,S3,S5,S7,S9`
+  - eval: `S10,S16,S4,S6,S8`
+
+Canonical closure runtime summary:
+
+- `PPG-DaLiA`
+  - fresh canonical prep `1246.29 s`
+  - cached canonical full rerun `54.58 s`
+- `WESAD`
+  - fresh canonical prep `811.69 s`
+  - cached canonical full rerun `36.00 s`
+
+Current best-supported Stage 4 conclusions from canonical full-dataset evidence:
+
+- cache-backed reruns are materially cheaper than rebuilds on canonical full-dataset scope
+- Stage 4C anomaly is still the strongest standalone Stage 4 component, but canonical evidence is mixed across datasets rather than uniformly stronger than Stage 3-only quality suspiciousness
+  - `PPG-DaLiA` eval: Stage 3 baseline `AUPRC 0.6834`, `AUROC 0.5646`; Stage 4 anomaly `AUPRC 0.6902`, `AUROC 0.6064`
+  - `WESAD` eval: Stage 3 baseline `AUPRC 0.6098`, `AUROC 0.5720`; Stage 4 anomaly `AUPRC 0.6004`, `AUROC 0.5698`
+- the current unified Stage 4 suspiciousness default still underperforms the simple Stage 3-only quality baseline on canonical full-dataset eval
+  - `PPG-DaLiA` eval: Stage 4 unified `AUPRC 0.6581`, `AUROC 0.4666`
+  - `WESAD` eval: Stage 4 unified `AUPRC 0.5997`, `AUROC 0.4940`
+- one conservative analysis-only fusion variant (`balanced_v1_analysis`) was rechecked on canonical cached inputs and still underperformed the current default on both datasets, so it was not promoted
+- bounded validation artifacts should continue to be treated as non-canonical comparison outputs only
 
 ## Stage 1 Results
 

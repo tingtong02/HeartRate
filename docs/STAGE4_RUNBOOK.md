@@ -436,15 +436,16 @@ Analysis-only fusion check using cached inputs:
 
 ```bash
 python scripts/run_stage4_full.py \
-  --dataset-config /tmp/ppg_dalia_stage4_medium6.yaml \
-  --eval-config /tmp/hr_stage4_full_balanced_v1.yaml \
+  --config configs/eval/hr_stage4_full.yaml \
+  --dataset-config configs/datasets/ppg_dalia.local.yaml \
+  --eval-config configs/eval/hr_stage4_full_balanced_v1_analysis.yaml \
   --output-scope validation \
-  --output-label fusion_balanced_v1
+  --output-label fusion_balanced_v1_canonical
 ```
 
-## Stronger Validation Summary
+## Validation And Canonical Closure Summary
 
-Current strongest completed validation in this refinement round used fixed subject-wise `medium6` bounded splits.
+The bounded `medium6` validation runs remain useful for quicker iteration and analysis-only comparisons.
 
 `PPG-DaLiA`
 
@@ -482,6 +483,42 @@ Current strongest completed validation in this refinement round used fixed subje
   - `stage4_anomaly_default`: `AUPRC 0.6548`, `AUROC 0.6933`, `precision 0.6486`, `recall 0.0976`
   - `stage4_full_default`: `AUPRC 0.5352`, `AUROC 0.4057`, `precision 0.6444`, `recall 0.2426`
 
+Canonical full-dataset Stage 4 closure runs were then completed and refreshed the unsuffixed source-of-record files in `outputs/`.
+
+`PPG-DaLiA` canonical
+
+- train subjects: `S10,S11,S12,S13,S15,S2,S3,S5,S7,S9`
+- eval subjects: `S1,S14,S4,S6,S8`
+- one-time canonical prep:
+  - source package build `707.96 s`
+  - feature package build `538.25 s`
+  - total prep `1246.29 s`
+- cached canonical rerun:
+  - source package reuse `0.02 s`
+  - feature package reuse `0.02 s`
+  - full pipeline runtime `54.58 s`
+- eval comparison:
+  - `stage3_quality_only`: `AUPRC 0.6834`, `AUROC 0.5646`, `precision 0.6717`, `recall 0.7286`, `alert_rate 0.6833`
+  - `stage4_anomaly_default`: `AUPRC 0.6902`, `AUROC 0.6064`, `precision 0.7911`, `recall 0.0744`, `alert_rate 0.0592`
+  - `stage4_full_default`: `AUPRC 0.6581`, `AUROC 0.4666`, `precision 0.6487`, `recall 0.2169`, `alert_rate 0.2107`
+
+`WESAD` canonical
+
+- train subjects: `S11,S13,S14,S15,S17,S2,S3,S5,S7,S9`
+- eval subjects: `S10,S16,S4,S6,S8`
+- one-time canonical prep:
+  - source package build `463.79 s`
+  - feature package build `347.84 s`
+  - total prep `811.69 s`
+- cached canonical rerun:
+  - source package reuse `0.02 s`
+  - feature package reuse `0.01 s`
+  - full pipeline runtime `36.00 s`
+- eval comparison:
+  - `stage3_quality_only`: `AUPRC 0.6098`, `AUROC 0.5720`, `precision 0.5925`, `recall 0.5355`, `alert_rate 0.5047`
+  - `stage4_anomaly_default`: `AUPRC 0.6004`, `AUROC 0.5698`, `precision 0.7467`, `recall 0.0739`, `alert_rate 0.0553`
+  - `stage4_full_default`: `AUPRC 0.5997`, `AUROC 0.4940`, `precision 0.6667`, `recall 0.3206`, `alert_rate 0.2685`
+
 Conservative analysis-only fusion check:
 
 - variant name: `balanced_v1_analysis`
@@ -490,22 +527,27 @@ Conservative analysis-only fusion check:
   - `two_signal_bonus = 0.05`
   - `three_signal_bonus = 0.10`
 - result:
-  - `PPG-DaLiA`: `AUPRC 0.5254`, `AUROC 0.4321`
-  - `WESAD`: `AUPRC 0.5345`, `AUROC 0.4053`
+  - bounded `medium6`:
+    - `PPG-DaLiA`: `AUPRC 0.5254`, `AUROC 0.4321`
+    - `WESAD`: `AUPRC 0.5345`, `AUROC 0.4053`
+  - canonical:
+    - `PPG-DaLiA`: `AUPRC 0.6571`, `AUROC 0.4660`
+    - `WESAD`: `AUPRC 0.5998`, `AUROC 0.4940`
 - interpretation:
   - this variant underperformed the current default on both datasets
   - it did not meet the promotion rule and remains analysis-only
 
-Canonical full-dataset Stage 4 reruns were not completed in this refinement round. The medium6 results above are the current best-supported validation evidence and should not be confused with canonical full-dataset source-of-record outputs.
-
 ## Current Best-Supported Conclusions
 
 - Stage 4 cache-backed preparation materially improves repeated-run practicality.
-- Stage 4C anomaly scoring remains the clearest Stage 4 gain beyond the Stage 3-only quality baseline on the stronger bounded validation now available.
-- The final unified Stage 4 suspiciousness default remains informative and auditable, but it still underperforms the simple Stage 3-only quality suspiciousness baseline on current `medium6` eval runs.
+- Canonical full-dataset Stage 4 outputs now exist and are the source-of-record artifacts in `outputs/`.
+- Stage 4C anomaly scoring is still the strongest standalone Stage 4 component, but canonical evidence is mixed across datasets rather than a uniform win over the Stage 3-only quality baseline.
+  - it improves over `stage3_quality_only` on canonical `PPG-DaLiA`
+  - it is slightly below `stage3_quality_only` on canonical `WESAD`
+- The final unified Stage 4 suspiciousness default remains informative and auditable, but it still underperforms the simple Stage 3-only quality suspiciousness baseline on canonical eval for both datasets.
 - The tested `balanced_v1_analysis` fusion adjustment did not improve that outcome and was not promoted.
 - The repository should therefore continue to present:
-  - anomaly-layer gains as the best-supported incremental Stage 4 benefit
+  - anomaly-layer results as the strongest standalone Stage 4 signal family, while acknowledging the mixed cross-dataset canonical evidence
   - unified-fusion results as useful stratification output, not as a demonstrated ranking improvement over the Stage 3-only baseline
 
 ## Interpretation And Limitations
@@ -516,4 +558,5 @@ Canonical full-dataset Stage 4 reruns were not completed in this refinement roun
 - Proxy targets are not clinical ground truth.
 - Stage 4C uses an unsupervised anomaly model over proxy-regular train windows, not clinical anomaly labels.
 - The final Stage 4 suspiciousness layer is intentionally interpretable and auditable, not a hidden learned fusion model.
+- Canonical ranking evidence does not support claiming that the unified Stage 4 suspiciousness layer is universally stronger than the Stage 3-only quality baseline.
 - Broader future work such as richer anomaly models, clinical labels, respiration, and deep sequence modeling remains deferred.
