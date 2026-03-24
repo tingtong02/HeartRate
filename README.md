@@ -377,6 +377,44 @@ python scripts/run_stage5_full.py \
 
 The Stage 5 scripts use `configs/eval/hr_stage5.yaml` plus the CNN overlay `configs/eval/hr_stage5_cnn.yaml` by default.
 
+## Results Site
+
+This repository now includes a static, English-first technical dashboard under `web/`.
+
+The browser does not read the large raw CSV artifacts directly. Instead, build compact JSON snapshots first:
+
+```bash
+conda run -n HeartRate_env python scripts/build_results_site_data.py
+```
+
+This exports site data to:
+
+- `web/public/data/`
+
+The frontend source lives in:
+
+- `web/src/`
+
+To run or build the site, install a local Node.js toolchain, then use:
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+```bash
+npm run build
+```
+
+Use the dashboard to present:
+
+- Stage 0–5 capability progression
+- canonical Stage 1–5 metrics
+- Stage 4 suspicious-segment evidence and caveats
+- Stage 5 respiration and multitask results
+- validation / analysis-only experiments without mixing them into canonical conclusions
+
 ## Output Conventions
 
 ### Canonical Outputs

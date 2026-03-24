@@ -1,0 +1,524 @@
+{
+  "generated_at_utc": "2026-03-24T04:15:47.481571+00:00",
+  "site": {
+    "title": "HeartRate_CNN Results Dashboard",
+    "default_dataset": "ppg_dalia",
+    "default_scope": "canonical",
+    "pages": [
+      "Overview",
+      "HR & Quality",
+      "Suspicious Segments",
+      "Respiration & Multitask",
+      "Experiments",
+      "Artifacts & Reproducibility"
+    ]
+  },
+  "datasets": [
+    {
+      "id": "ppg_dalia",
+      "label": "PPG-DaLiA"
+    },
+    {
+      "id": "wesad",
+      "label": "WESAD"
+    }
+  ],
+  "scopes": [
+    {
+      "id": "canonical",
+      "label": "Canonical"
+    },
+    {
+      "id": "validation",
+      "label": "Validation"
+    },
+    {
+      "id": "analysis-only",
+      "label": "Analysis Only"
+    }
+  ],
+  "validation_labels": [
+    {
+      "label": "bounded_medium6_seed42",
+      "scope": "validation"
+    },
+    {
+      "label": "fusion_balanced_v1",
+      "scope": "analysis-only"
+    },
+    {
+      "label": "fusion_balanced_v1_canonical",
+      "scope": "analysis-only"
+    },
+    {
+      "label": "stage5_tuning",
+      "scope": "analysis-only"
+    }
+  ],
+  "timeline_index": {
+    "stage4": {
+      "ppg_dalia": [
+        {
+          "subject_id": "S1",
+          "split": "eval",
+          "path": "stage_timelines/stage4/ppg_dalia/ppg_dalia__eval__S1.json",
+          "num_rows": 4603
+        },
+        {
+          "subject_id": "S14",
+          "split": "eval",
+          "path": "stage_timelines/stage4/ppg_dalia/ppg_dalia__eval__S14.json",
+          "num_rows": 4476
+        },
+        {
+          "subject_id": "S4",
+          "split": "eval",
+          "path": "stage_timelines/stage4/ppg_dalia/ppg_dalia__eval__S4.json",
+          "num_rows": 4572
+        },
+        {
+          "subject_id": "S6",
+          "split": "eval",
+          "path": "stage_timelines/stage4/ppg_dalia/ppg_dalia__eval__S6.json",
+          "num_rows": 2622
+        },
+        {
+          "subject_id": "S8",
+          "split": "eval",
+          "path": "stage_timelines/stage4/ppg_dalia/ppg_dalia__eval__S8.json",
+          "num_rows": 4037
+        },
+        {
+          "subject_id": "S10",
+          "split": "train",
+          "path": "stage_timelines/stage4/ppg_dalia/ppg_dalia__train__S10.json",
+          "num_rows": 5321
+        },
+        {
+          "subject_id": "S11",
+          "split": "train",
+          "path": "stage_timelines/stage4/ppg_dalia/ppg_dalia__train__S11.json",
+          "num_rows": 4521
+        },
+        {
+          "subject_id": "S12",
+          "split": "train",
+          "path": "stage_timelines/stage4/ppg_dalia/ppg_dalia__train__S12.json",
+          "num_rows": 3954
+        },
+        {
+          "subject_id": "S13",
+          "split": "train",
+          "path": "stage_timelines/stage4/ppg_dalia/ppg_dalia__train__S13.json",
+          "num_rows": 4565
+        },
+        {
+          "subject_id": "S15",
+          "split": "train",
+          "path": "stage_timelines/stage4/ppg_dalia/ppg_dalia__train__S15.json",
+          "num_rows": 3966
+        },
+        {
+          "subject_id": "S2",
+          "split": "train",
+          "path": "stage_timelines/stage4/ppg_dalia/ppg_dalia__train__S2.json",
+          "num_rows": 4099
+        },
+        {
+          "subject_id": "S3",
+          "split": "train",
+          "path": "stage_timelines/stage4/ppg_dalia/ppg_dalia__train__S3.json",
+          "num_rows": 4367
+        },
+        {
+          "subject_id": "S5",
+          "split": "train",
+          "path": "stage_timelines/stage4/ppg_dalia/ppg_dalia__train__S5.json",
+          "num_rows": 4649
+        },
+        {
+          "subject_id": "S7",
+          "split": "train",
+          "path": "stage_timelines/stage4/ppg_dalia/ppg_dalia__train__S7.json",
+          "num_rows": 4668
+        },
+        {
+          "subject_id": "S9",
+          "split": "train",
+          "path": "stage_timelines/stage4/ppg_dalia/ppg_dalia__train__S9.json",
+          "num_rows": 4277
+        }
+      ],
+      "wesad": [
+        {
+          "subject_id": "S10",
+          "split": "eval",
+          "path": "stage_timelines/stage4/wesad/wesad__eval__S10.json",
+          "num_rows": 2745
+        },
+        {
+          "subject_id": "S16",
+          "split": "eval",
+          "path": "stage_timelines/stage4/wesad/wesad__eval__S16.json",
+          "num_rows": 2812
+        },
+        {
+          "subject_id": "S4",
+          "split": "eval",
+          "path": "stage_timelines/stage4/wesad/wesad__eval__S4.json",
+          "num_rows": 3208
+        },
+        {
+          "subject_id": "S6",
+          "split": "eval",
+          "path": "stage_timelines/stage4/wesad/wesad__eval__S6.json",
+          "num_rows": 3532
+        },
+        {
+          "subject_id": "S8",
+          "split": "eval",
+          "path": "stage_timelines/stage4/wesad/wesad__eval__S8.json",
+          "num_rows": 2730
+        },
+        {
+          "subject_id": "S11",
+          "split": "train",
+          "path": "stage_timelines/stage4/wesad/wesad__train__S11.json",
+          "num_rows": 2613
+        },
+        {
+          "subject_id": "S13",
+          "split": "train",
+          "path": "stage_timelines/stage4/wesad/wesad__train__S13.json",
+          "num_rows": 2765
+        },
+        {
+          "subject_id": "S14",
+          "split": "train",
+          "path": "stage_timelines/stage4/wesad/wesad__train__S14.json",
+          "num_rows": 2771
+        },
+        {
+          "subject_id": "S15",
+          "split": "train",
+          "path": "stage_timelines/stage4/wesad/wesad__train__S15.json",
+          "num_rows": 2623
+        },
+        {
+          "subject_id": "S17",
+          "split": "train",
+          "path": "stage_timelines/stage4/wesad/wesad__train__S17.json",
+          "num_rows": 2957
+        },
+        {
+          "subject_id": "S2",
+          "split": "train",
+          "path": "stage_timelines/stage4/wesad/wesad__train__S2.json",
+          "num_rows": 3036
+        },
+        {
+          "subject_id": "S3",
+          "split": "train",
+          "path": "stage_timelines/stage4/wesad/wesad__train__S3.json",
+          "num_rows": 3243
+        },
+        {
+          "subject_id": "S5",
+          "split": "train",
+          "path": "stage_timelines/stage4/wesad/wesad__train__S5.json",
+          "num_rows": 3126
+        },
+        {
+          "subject_id": "S7",
+          "split": "train",
+          "path": "stage_timelines/stage4/wesad/wesad__train__S7.json",
+          "num_rows": 2616
+        },
+        {
+          "subject_id": "S9",
+          "split": "train",
+          "path": "stage_timelines/stage4/wesad/wesad__train__S9.json",
+          "num_rows": 2608
+        }
+      ]
+    },
+    "stage5": {
+      "ppg_dalia": [
+        {
+          "subject_id": "S10",
+          "split": "train",
+          "path": "stage_timelines/stage5/ppg_dalia/ppg_dalia__train__S10.json",
+          "num_rows": 2651
+        },
+        {
+          "subject_id": "S11",
+          "split": "train",
+          "path": "stage_timelines/stage5/ppg_dalia/ppg_dalia__train__S11.json",
+          "num_rows": 2251
+        },
+        {
+          "subject_id": "S12",
+          "split": "train",
+          "path": "stage_timelines/stage5/ppg_dalia/ppg_dalia__train__S12.json",
+          "num_rows": 1967
+        },
+        {
+          "subject_id": "S13",
+          "split": "train",
+          "path": "stage_timelines/stage5/ppg_dalia/ppg_dalia__train__S13.json",
+          "num_rows": 2273
+        },
+        {
+          "subject_id": "S15",
+          "split": "train",
+          "path": "stage_timelines/stage5/ppg_dalia/ppg_dalia__train__S15.json",
+          "num_rows": 1973
+        },
+        {
+          "subject_id": "S2",
+          "split": "train",
+          "path": "stage_timelines/stage5/ppg_dalia/ppg_dalia__train__S2.json",
+          "num_rows": 2040
+        },
+        {
+          "subject_id": "S3",
+          "split": "train",
+          "path": "stage_timelines/stage5/ppg_dalia/ppg_dalia__train__S3.json",
+          "num_rows": 2174
+        },
+        {
+          "subject_id": "S5",
+          "split": "train",
+          "path": "stage_timelines/stage5/ppg_dalia/ppg_dalia__train__S5.json",
+          "num_rows": 2315
+        },
+        {
+          "subject_id": "S7",
+          "split": "train",
+          "path": "stage_timelines/stage5/ppg_dalia/ppg_dalia__train__S7.json",
+          "num_rows": 2324
+        },
+        {
+          "subject_id": "S9",
+          "split": "train",
+          "path": "stage_timelines/stage5/ppg_dalia/ppg_dalia__train__S9.json",
+          "num_rows": 2129
+        },
+        {
+          "subject_id": "S1",
+          "split": "eval",
+          "path": "stage_timelines/stage5/ppg_dalia/ppg_dalia__eval__S1.json",
+          "num_rows": 2292
+        },
+        {
+          "subject_id": "S14",
+          "split": "eval",
+          "path": "stage_timelines/stage5/ppg_dalia/ppg_dalia__eval__S14.json",
+          "num_rows": 2228
+        },
+        {
+          "subject_id": "S4",
+          "split": "eval",
+          "path": "stage_timelines/stage5/ppg_dalia/ppg_dalia__eval__S4.json",
+          "num_rows": 2276
+        },
+        {
+          "subject_id": "S6",
+          "split": "eval",
+          "path": "stage_timelines/stage5/ppg_dalia/ppg_dalia__eval__S6.json",
+          "num_rows": 1301
+        },
+        {
+          "subject_id": "S8",
+          "split": "eval",
+          "path": "stage_timelines/stage5/ppg_dalia/ppg_dalia__eval__S8.json",
+          "num_rows": 2009
+        }
+      ],
+      "wesad": [
+        {
+          "subject_id": "S11",
+          "split": "train",
+          "path": "stage_timelines/stage5/wesad/wesad__train__S11.json",
+          "num_rows": 1301
+        },
+        {
+          "subject_id": "S13",
+          "split": "train",
+          "path": "stage_timelines/stage5/wesad/wesad__train__S13.json",
+          "num_rows": 1377
+        },
+        {
+          "subject_id": "S14",
+          "split": "train",
+          "path": "stage_timelines/stage5/wesad/wesad__train__S14.json",
+          "num_rows": 1380
+        },
+        {
+          "subject_id": "S15",
+          "split": "train",
+          "path": "stage_timelines/stage5/wesad/wesad__train__S15.json",
+          "num_rows": 1306
+        },
+        {
+          "subject_id": "S17",
+          "split": "train",
+          "path": "stage_timelines/stage5/wesad/wesad__train__S17.json",
+          "num_rows": 1473
+        },
+        {
+          "subject_id": "S2",
+          "split": "train",
+          "path": "stage_timelines/stage5/wesad/wesad__train__S2.json",
+          "num_rows": 1512
+        },
+        {
+          "subject_id": "S3",
+          "split": "train",
+          "path": "stage_timelines/stage5/wesad/wesad__train__S3.json",
+          "num_rows": 1616
+        },
+        {
+          "subject_id": "S5",
+          "split": "train",
+          "path": "stage_timelines/stage5/wesad/wesad__train__S5.json",
+          "num_rows": 1557
+        },
+        {
+          "subject_id": "S7",
+          "split": "train",
+          "path": "stage_timelines/stage5/wesad/wesad__train__S7.json",
+          "num_rows": 1302
+        },
+        {
+          "subject_id": "S9",
+          "split": "train",
+          "path": "stage_timelines/stage5/wesad/wesad__train__S9.json",
+          "num_rows": 1298
+        },
+        {
+          "subject_id": "S10",
+          "split": "eval",
+          "path": "stage_timelines/stage5/wesad/wesad__eval__S10.json",
+          "num_rows": 1367
+        },
+        {
+          "subject_id": "S16",
+          "split": "eval",
+          "path": "stage_timelines/stage5/wesad/wesad__eval__S16.json",
+          "num_rows": 1400
+        },
+        {
+          "subject_id": "S4",
+          "split": "eval",
+          "path": "stage_timelines/stage5/wesad/wesad__eval__S4.json",
+          "num_rows": 1598
+        },
+        {
+          "subject_id": "S6",
+          "split": "eval",
+          "path": "stage_timelines/stage5/wesad/wesad__eval__S6.json",
+          "num_rows": 1760
+        },
+        {
+          "subject_id": "S8",
+          "split": "eval",
+          "path": "stage_timelines/stage5/wesad/wesad__eval__S8.json",
+          "num_rows": 1359
+        }
+      ]
+    }
+  },
+  "artifact_summary": {
+    "total_count": 128,
+    "by_scope": {
+      "cache": 26,
+      "canonical": 52,
+      "analysis-only": 34,
+      "validation": 16
+    }
+  },
+  "reference_docs": [
+    {
+      "label": "README",
+      "path": "README.md"
+    },
+    {
+      "label": "Project Tasks",
+      "path": "docs/PROJECT_TASKS.md"
+    },
+    {
+      "label": "Stage 3 Runbook",
+      "path": "docs/STAGE3_RUNBOOK.md"
+    },
+    {
+      "label": "Stage 4 Runbook",
+      "path": "docs/STAGE4_RUNBOOK.md"
+    },
+    {
+      "label": "Stage 5 Runbook",
+      "path": "docs/STAGE5_RUNBOOK.md"
+    },
+    {
+      "label": "Usage Guide",
+      "path": "docs/USAGE_GUIDE.md"
+    },
+    {
+      "label": "Handoff",
+      "path": "docs/HANDOFF.md"
+    }
+  ],
+  "reference_scripts": [
+    {
+      "label": "Stage 4 Source Prep",
+      "path": "scripts/prepare_stage4_sources.py"
+    },
+    {
+      "label": "Stage 4 Full",
+      "path": "scripts/run_stage4_full.py"
+    },
+    {
+      "label": "Stage 5 Source Prep",
+      "path": "scripts/prepare_stage5_sources.py"
+    },
+    {
+      "label": "Stage 5 Train",
+      "path": "scripts/run_stage5_train_cnn.py"
+    },
+    {
+      "label": "Stage 5 Full",
+      "path": "scripts/run_stage5_full.py"
+    },
+    {
+      "label": "Results Site Export",
+      "path": "scripts/build_results_site_data.py"
+    }
+  ],
+  "reference_configs": [
+    {
+      "label": "Base Config",
+      "path": "configs/base.yaml"
+    },
+    {
+      "label": "Stage 3 Enhanced",
+      "path": "configs/eval/hr_stage3_enhanced.yaml"
+    },
+    {
+      "label": "Stage 4 Full",
+      "path": "configs/eval/hr_stage4_full.yaml"
+    },
+    {
+      "label": "Stage 5 Eval",
+      "path": "configs/eval/hr_stage5.yaml"
+    },
+    {
+      "label": "Stage 5 CNN",
+      "path": "configs/eval/hr_stage5_cnn.yaml"
+    }
+  ],
+  "output_roots": {
+    "canonical": "/home/lisihang/learning/HeartRate_CNN/outputs",
+    "validation": "/home/lisihang/learning/HeartRate_CNN/outputs/validation",
+    "cache": "/home/lisihang/learning/HeartRate_CNN/outputs/cache"
+  }
+}

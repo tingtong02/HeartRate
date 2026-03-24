@@ -1,0 +1,435 @@
+{
+  "project_title": "HeartRate_CNN",
+  "summary": "CPU-first public-dataset PPG physiological analysis framework spanning Stage 0\u20135.",
+  "supported_datasets": [
+    {
+      "id": "ppg_dalia",
+      "label": "PPG-DaLiA"
+    },
+    {
+      "id": "wesad",
+      "label": "WESAD"
+    }
+  ],
+  "default_scope": "canonical",
+  "default_dataset": "ppg_dalia",
+  "stage_cards": [
+    {
+      "stage": "Stage 0",
+      "status": "implemented",
+      "default_path": "foundation",
+      "focus": "loading, alignment, ECG-backed references"
+    },
+    {
+      "stage": "Stage 1",
+      "status": "implemented",
+      "default_path": "stage1_frequency",
+      "focus": "window-level heart-rate estimation"
+    },
+    {
+      "stage": "Stage 2",
+      "status": "implemented",
+      "default_path": "enhanced",
+      "focus": "beat / IBI / PRV foundation"
+    },
+    {
+      "stage": "Stage 3",
+      "status": "implemented",
+      "default_path": "gated_stage3_ml_logreg",
+      "focus": "quality-aware HR gating"
+    },
+    {
+      "stage": "Stage 4",
+      "status": "implemented",
+      "default_path": "stage4_full",
+      "focus": "event / irregular / anomaly layer"
+    },
+    {
+      "stage": "Stage 5",
+      "status": "implemented",
+      "default_path": "stage5_resp_multitask_cnn_v1",
+      "focus": "CNN respiration and multitask interface"
+    }
+  ],
+  "default_paths": [
+    {
+      "stage": "Stage 1",
+      "name": "stage1_frequency"
+    },
+    {
+      "stage": "Stage 2",
+      "name": "enhanced"
+    },
+    {
+      "stage": "Stage 3",
+      "name": "gated_stage3_ml_logreg"
+    },
+    {
+      "stage": "Stage 3 prototype",
+      "name": "robust_stage3c2_policy"
+    },
+    {
+      "stage": "Stage 4B",
+      "name": "hist_gbdt_irregular"
+    },
+    {
+      "stage": "Stage 4C",
+      "name": "isolation_forest_anomaly"
+    },
+    {
+      "stage": "Stage 5",
+      "name": "stage5_resp_multitask_cnn_v1"
+    }
+  ],
+  "evidence_banners": [
+    "Stage 1 default = stage1_frequency",
+    "Stage 3 default = gated_stage3_ml_logreg",
+    "Stage 4 unified suspiciousness is not yet a better ranking baseline than Stage 3-only quality suspiciousness",
+    "Stage 5 CNN respiration clearly beats the classical surrogate baseline on canonical outputs"
+  ],
+  "best_supported_conclusions": [
+    "Stage 4 adds a richer and more auditable suspicious-segment layer beyond Stage 3-only validity gating.",
+    "Stage 4 proxy labels are repository-specific and non-clinical.",
+    "Stage 4 unified suspiciousness remains more useful for interpretation and stratification than as the strongest ranking signal.",
+    "Stage 5 uses chest Resp references already present in PPG-DaLiA and WESAD.",
+    "Stage 5 carries forward the HR pipeline unchanged, so it does not materially degrade existing HR outputs."
+  ],
+  "datasets": {
+    "ppg_dalia": {
+      "label": "PPG-DaLiA",
+      "stage1_best": {
+        "method": "stage1_frequency",
+        "mae": 9.52275,
+        "rmse": 18.880553,
+        "pearson_r": 0.767937,
+        "num_valid_windows": 6761.0
+      },
+      "stage3_default": [
+        {
+          "task": "hr_comparison",
+          "method": "gated_stage3_ml_logreg",
+          "accuracy": null,
+          "precision": null,
+          "recall": null,
+          "f1": null,
+          "num_eval_windows": null,
+          "mae": 7.94988,
+          "rmse": 16.192263,
+          "mape": 8.142555,
+          "pearson_r": 0.824732,
+          "num_valid_windows": 6424.0,
+          "retention_ratio": 0.950155,
+          "output_fraction": 0.316297,
+          "selected_threshold": 0.49,
+          "frequency_fraction": null,
+          "beat_fallback_fraction": null,
+          "hold_previous_fraction": null,
+          "reject_fraction": null,
+          "avg_abs_jump_bpm": null,
+          "hold_count": null,
+          "subject_boundary_reset_count": null,
+          "fallback_insufficient_count": null,
+          "baseline_profile_name": null,
+          "selected_profile_name": null,
+          "selection_metric": null,
+          "selection_constraint": null,
+          "train_only_selection": null,
+          "analysis_only": null,
+          "baseline_is_best_feasible": null,
+          "no_feasible_profiles": null
+        }
+      ],
+      "stage4_conclusion": {
+        "strongest_stage4_standalone_method": "stage4_anomaly_default",
+        "strongest_stage4_standalone_label": "anomaly scoring",
+        "stage3_quality_only": {
+          "task": "stage4_full",
+          "metric_group": "stage3_comparison",
+          "method": "stage3_quality_only",
+          "subgroup": "score_and_flag",
+          "split": "eval",
+          "target_name": "proxy_abnormal_union",
+          "num_eval_windows": 20216.0,
+          "num_positive_targets": 12736.0,
+          "num_positive_predictions": 13814.0,
+          "accuracy": 0.60467,
+          "precision": 0.67171,
+          "recall": 0.728565,
+          "f1": 0.698983,
+          "auroc": 0.564572,
+          "auprc": 0.683429,
+          "alert_rate": 0.68332,
+          "quality_gate_pass_fraction": 0.287446,
+          "valid_fraction": 0.31668,
+          "proxy_abnormal_rate": 0.629996
+        },
+        "stage4_irregular_default": {
+          "task": "stage4_full",
+          "metric_group": "stage3_comparison",
+          "method": "stage4_irregular_default",
+          "subgroup": "score_and_flag",
+          "split": "eval",
+          "target_name": "proxy_abnormal_union",
+          "num_eval_windows": 20216.0,
+          "num_positive_targets": 12736.0,
+          "num_positive_predictions": 3075.0,
+          "accuracy": 0.386773,
+          "precision": 0.555122,
+          "recall": 0.13403,
+          "f1": 0.215926,
+          "auroc": 0.452081,
+          "auprc": 0.633823,
+          "alert_rate": 0.152107,
+          "quality_gate_pass_fraction": 0.287446,
+          "valid_fraction": 0.287446,
+          "proxy_abnormal_rate": 0.629996
+        },
+        "stage4_anomaly_default": {
+          "task": "stage4_full",
+          "metric_group": "stage3_comparison",
+          "method": "stage4_anomaly_default",
+          "subgroup": "score_and_flag",
+          "split": "eval",
+          "target_name": "proxy_abnormal_union",
+          "num_eval_windows": 20216.0,
+          "num_positive_targets": 12736.0,
+          "num_positive_predictions": 1197.0,
+          "accuracy": 0.404482,
+          "precision": 0.791145,
+          "recall": 0.074356,
+          "f1": 0.135936,
+          "auroc": 0.606388,
+          "auprc": 0.690238,
+          "alert_rate": 0.059211,
+          "quality_gate_pass_fraction": 0.287446,
+          "valid_fraction": 0.287446,
+          "proxy_abnormal_rate": 0.629996
+        },
+        "stage4_full_default": {
+          "task": "stage4_full",
+          "metric_group": "stage3_comparison",
+          "method": "stage4_full_default",
+          "subgroup": "score_and_flag",
+          "split": "eval",
+          "target_name": "proxy_abnormal_union",
+          "num_eval_windows": 20216.0,
+          "num_positive_targets": 12736.0,
+          "num_positive_predictions": 4259.0,
+          "accuracy": 0.432677,
+          "precision": 0.648744,
+          "recall": 0.216944,
+          "f1": 0.325154,
+          "auroc": 0.466554,
+          "auprc": 0.658123,
+          "alert_rate": 0.210675,
+          "quality_gate_pass_fraction": 0.287446,
+          "valid_fraction": 0.287446,
+          "proxy_abnormal_rate": 0.629996
+        },
+        "unified_beats_stage3": false
+      },
+      "stage5_conclusion": {
+        "baseline": {
+          "task": "stage5_respiration",
+          "method": "resp_surrogate_fusion_baseline",
+          "split": "eval",
+          "subset": "high_quality_ref_valid",
+          "num_eval_windows": 1137.0,
+          "resp_mae_bpm": 9.156841,
+          "resp_rmse_bpm": 10.249564,
+          "resp_pearson_r": 0.103703,
+          "within_3_bpm_rate": 0.08883,
+          "resp_valid_auroc": null,
+          "resp_valid_auprc": null,
+          "hr_selected_hr_match_rate": 1.0,
+          "stage4_suspicion_match_rate": 1.0
+        },
+        "cnn": {
+          "task": "stage5_respiration",
+          "method": "stage5_resp_multitask_cnn_v1",
+          "split": "eval",
+          "subset": "high_quality_ref_valid",
+          "num_eval_windows": 1166.0,
+          "resp_mae_bpm": 2.36574,
+          "resp_rmse_bpm": 3.382031,
+          "resp_pearson_r": 0.613315,
+          "within_3_bpm_rate": 0.744425,
+          "resp_valid_auroc": 0.823158,
+          "resp_valid_auprc": 0.639029,
+          "hr_selected_hr_match_rate": 1.0,
+          "stage4_suspicion_match_rate": 1.0
+        },
+        "mae_reduction_pct": 74.16423,
+        "cnn_beats_baseline": true
+      }
+    },
+    "wesad": {
+      "label": "WESAD",
+      "stage1_best": {
+        "method": "stage1_frequency",
+        "mae": 10.813675,
+        "rmse": 22.364195,
+        "pearson_r": 0.53482,
+        "num_valid_windows": 7825.0
+      },
+      "stage3_default": [
+        {
+          "task": "hr_comparison",
+          "method": "gated_stage3_ml_logreg",
+          "accuracy": null,
+          "precision": null,
+          "recall": null,
+          "f1": null,
+          "num_eval_windows": null,
+          "mae": 10.071912,
+          "rmse": 21.450986,
+          "mape": 9.283823,
+          "pearson_r": 0.567389,
+          "num_valid_windows": 7436.0,
+          "retention_ratio": 0.950288,
+          "output_fraction": 0.494843,
+          "selected_threshold": 0.79,
+          "frequency_fraction": null,
+          "beat_fallback_fraction": null,
+          "hold_previous_fraction": null,
+          "reject_fraction": null,
+          "avg_abs_jump_bpm": null,
+          "hold_count": null,
+          "subject_boundary_reset_count": null,
+          "fallback_insufficient_count": null,
+          "baseline_profile_name": null,
+          "selected_profile_name": null,
+          "selection_metric": null,
+          "selection_constraint": null,
+          "train_only_selection": null,
+          "analysis_only": null,
+          "baseline_is_best_feasible": null,
+          "no_feasible_profiles": null
+        }
+      ],
+      "stage4_conclusion": {
+        "strongest_stage4_standalone_method": "stage4_irregular_default",
+        "strongest_stage4_standalone_label": "irregular screening",
+        "stage3_quality_only": {
+          "task": "stage4_full",
+          "metric_group": "stage3_comparison",
+          "method": "stage3_quality_only",
+          "subgroup": "score_and_flag",
+          "split": "eval",
+          "target_name": "proxy_abnormal_union",
+          "num_eval_windows": 14998.0,
+          "num_positive_targets": 8376.0,
+          "num_positive_predictions": 7570.0,
+          "accuracy": 0.534871,
+          "precision": 0.59247,
+          "recall": 0.535458,
+          "f1": 0.562524,
+          "auroc": 0.571989,
+          "auprc": 0.609815,
+          "alert_rate": 0.504734,
+          "quality_gate_pass_fraction": 0.440125,
+          "valid_fraction": 0.495266,
+          "proxy_abnormal_rate": 0.558474
+        },
+        "stage4_irregular_default": {
+          "task": "stage4_full",
+          "metric_group": "stage3_comparison",
+          "method": "stage4_irregular_default",
+          "subgroup": "score_and_flag",
+          "split": "eval",
+          "target_name": "proxy_abnormal_union",
+          "num_eval_windows": 14998.0,
+          "num_positive_targets": 8376.0,
+          "num_positive_predictions": 3432.0,
+          "accuracy": 0.507668,
+          "precision": 0.644522,
+          "recall": 0.264088,
+          "f1": 0.374661,
+          "auroc": 0.605268,
+          "auprc": 0.670472,
+          "alert_rate": 0.228831,
+          "quality_gate_pass_fraction": 0.440125,
+          "valid_fraction": 0.440125,
+          "proxy_abnormal_rate": 0.558474
+        },
+        "stage4_anomaly_default": {
+          "task": "stage4_full",
+          "metric_group": "stage3_comparison",
+          "method": "stage4_anomaly_default",
+          "subgroup": "score_and_flag",
+          "split": "eval",
+          "target_name": "proxy_abnormal_union",
+          "num_eval_windows": 14998.0,
+          "num_positive_targets": 8376.0,
+          "num_positive_predictions": 829.0,
+          "accuracy": 0.468796,
+          "precision": 0.746683,
+          "recall": 0.073902,
+          "f1": 0.134492,
+          "auroc": 0.569771,
+          "auprc": 0.600383,
+          "alert_rate": 0.055274,
+          "quality_gate_pass_fraction": 0.440125,
+          "valid_fraction": 0.440125,
+          "proxy_abnormal_rate": 0.558474
+        },
+        "stage4_full_default": {
+          "task": "stage4_full",
+          "metric_group": "stage3_comparison",
+          "method": "stage4_full_default",
+          "subgroup": "score_and_flag",
+          "split": "eval",
+          "target_name": "proxy_abnormal_union",
+          "num_eval_windows": 14998.0,
+          "num_positive_targets": 8376.0,
+          "num_positive_predictions": 4027.0,
+          "accuracy": 0.531071,
+          "precision": 0.666749,
+          "recall": 0.320559,
+          "f1": 0.43296,
+          "auroc": 0.493989,
+          "auprc": 0.599702,
+          "alert_rate": 0.268502,
+          "quality_gate_pass_fraction": 0.440125,
+          "valid_fraction": 0.440125,
+          "proxy_abnormal_rate": 0.558474
+        },
+        "unified_beats_stage3": false
+      },
+      "stage5_conclusion": {
+        "baseline": {
+          "task": "stage5_respiration",
+          "method": "resp_surrogate_fusion_baseline",
+          "split": "eval",
+          "subset": "high_quality_ref_valid",
+          "num_eval_windows": 2574.0,
+          "resp_mae_bpm": 6.408864,
+          "resp_rmse_bpm": 7.519799,
+          "resp_pearson_r": 0.130957,
+          "within_3_bpm_rate": 0.259518,
+          "resp_valid_auroc": null,
+          "resp_valid_auprc": null,
+          "hr_selected_hr_match_rate": 1.0,
+          "stage4_suspicion_match_rate": 1.0
+        },
+        "cnn": {
+          "task": "stage5_respiration",
+          "method": "stage5_resp_multitask_cnn_v1",
+          "split": "eval",
+          "subset": "high_quality_ref_valid",
+          "num_eval_windows": 2664.0,
+          "resp_mae_bpm": 2.847822,
+          "resp_rmse_bpm": 3.503022,
+          "resp_pearson_r": 0.427507,
+          "within_3_bpm_rate": 0.590841,
+          "resp_valid_auroc": 0.708563,
+          "resp_valid_auprc": 0.782333,
+          "hr_selected_hr_match_rate": 1.0,
+          "stage4_suspicion_match_rate": 1.0
+        },
+        "mae_reduction_pct": 55.564315,
+        "cnn_beats_baseline": true
+      }
+    }
+  }
+}

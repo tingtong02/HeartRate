@@ -1,0 +1,92 @@
+{
+  "datasets": {
+    "ppg_dalia": {
+      "label": "PPG-DaLiA",
+      "rows": [
+        {
+          "method": "stage0_baseline",
+          "mae": 23.75732,
+          "rmse": 34.82673,
+          "mape": 22.54899,
+          "pearson_r": 0.389522,
+          "num_valid_windows": 20310.0
+        },
+        {
+          "method": "stage1_frequency",
+          "mae": 9.52275,
+          "rmse": 18.880553,
+          "mape": 9.612503,
+          "pearson_r": 0.767937,
+          "num_valid_windows": 6761.0
+        },
+        {
+          "method": "stage1_time",
+          "mae": 23.592636,
+          "rmse": 31.583678,
+          "mape": 21.80043,
+          "pearson_r": 0.330989,
+          "num_valid_windows": 20186.0
+        },
+        {
+          "method": "stage1_fusion",
+          "mae": 21.865541,
+          "rmse": 30.344848,
+          "mape": 20.332375,
+          "pearson_r": 0.422035,
+          "num_valid_windows": 20201.0
+        }
+      ],
+      "best_method": {
+        "method": "stage1_frequency",
+        "mae": 9.52275,
+        "rmse": 18.880553,
+        "pearson_r": 0.767937,
+        "num_valid_windows": 6761.0
+      }
+    },
+    "wesad": {
+      "label": "WESAD",
+      "rows": [
+        {
+          "method": "stage0_baseline",
+          "mae": 19.610092,
+          "rmse": 31.661955,
+          "mape": 18.973398,
+          "pearson_r": 0.264445,
+          "num_valid_windows": 15027.0
+        },
+        {
+          "method": "stage1_frequency",
+          "mae": 10.813675,
+          "rmse": 22.364195,
+          "mape": 10.083312,
+          "pearson_r": 0.53482,
+          "num_valid_windows": 7825.0
+        },
+        {
+          "method": "stage1_time",
+          "mae": 18.681145,
+          "rmse": 28.69992,
+          "mape": 18.904424,
+          "pearson_r": 0.126226,
+          "num_valid_windows": 14893.0
+        },
+        {
+          "method": "stage1_fusion",
+          "mae": 16.497999,
+          "rmse": 27.131408,
+          "mape": 15.688327,
+          "pearson_r": 0.326514,
+          "num_valid_windows": 14901.0
+        }
+      ],
+      "best_method": {
+        "method": "stage1_frequency",
+        "mae": 10.813675,
+        "rmse": 22.364195,
+        "pearson_r": 0.53482,
+        "num_valid_windows": 7825.0
+      }
+    }
+  }
+}
