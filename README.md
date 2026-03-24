@@ -520,10 +520,10 @@ Stage 0 assumes the official subject-pickle style layout for both datasets.
 
 For more detail, see:
 
-- [docs/STAGE0_RUNBOOK.md](.docs/STAGE0_RUNBOOK.md)
-- [docs/STAGE1_RUNBOOK.md](.docs/STAGE1_RUNBOOK.md)
-- [docs/STAGE2_RUNBOOK.md](.docs/STAGE2_RUNBOOK.md)
-- [docs/DATASETS.md](.docs/DATASETS.md)
+- [docs/STAGE0_RUNBOOK.md](./docs/STAGE0_RUNBOOK.md)
+- [docs/STAGE1_RUNBOOK.md](./docs/STAGE1_RUNBOOK.md)
+- [docs/STAGE2_RUNBOOK.md](./docs/STAGE2_RUNBOOK.md)
+- [docs/DATASETS.md](./docs/DATASETS.md)
 
 ## Current Limitations
 
