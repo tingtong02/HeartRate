@@ -238,16 +238,39 @@ body {
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: 2rem;
-  text-align: center;
+  padding: 1rem;
   color: var(--text-muted);
-  font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+  font-family: var(--font-family);
   font-size: 0.95rem;
-  border: 1px dashed var(--border);
+  border: 1px solid rgba(255, 255, 255, 0.5); /* Soft glass border for real charts */
+  overflow: hidden;
 }
 
 .large-placeholder {
   aspect-ratio: 4 / 3;
+}
+
+/* Spinner Loader */
+.loader-spinner {
+  border: 3px solid var(--border);
+  border-top: 3px solid var(--accent-primary);
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 15px auto;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.chart-loader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
 }
 
 /* Responsive Layout */
