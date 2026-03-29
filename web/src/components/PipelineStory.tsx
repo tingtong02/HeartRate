@@ -1,6 +1,7 @@
 import React, { useMemo } from "react";
 import { useJsonData } from "../lib";
 import EChartComponent from "./EChartComponent";
+import ScrollReveal from "./ScrollReveal";
 
 interface Stage4Row {
   window_index: number;
@@ -154,7 +155,7 @@ export default function PipelineStory() {
       <div className="story-container">
         
         {/* Block 1 */}
-        <div className="story-row">
+        <ScrollReveal className="story-row">
           <div className="story-text">
             <div className="stage-badge">Stages 1 & 2</div>
             <h2>Signal Processing & Beat Extraction</h2>
@@ -172,10 +173,10 @@ export default function PipelineStory() {
               {renderPlaceholderContent(s4Loading, s4Error, hrOption)}
             </div>
           </div>
-        </div>
+        </ScrollReveal>
 
         {/* Block 2 */}
-        <div className="story-row alternate">
+        <ScrollReveal className="story-row alternate">
           <div className="story-text">
             <div className="stage-badge">Stage 3</div>
             <h2>The Quality Gate & Signal Filtering</h2>
@@ -193,10 +194,10 @@ export default function PipelineStory() {
               {renderPlaceholderContent(s4Loading, s4Error, gateOption)}
             </div>
           </div>
-        </div>
+        </ScrollReveal>
 
         {/* Block 3 */}
-        <div className="story-row">
+        <ScrollReveal className="story-row">
           <div className="story-text">
             <div className="stage-badge">Stage 4</div>
             <h2>Anomaly Detection via Isolation Forests</h2>
@@ -214,10 +215,10 @@ export default function PipelineStory() {
               {renderPlaceholderContent(s4Loading, s4Error, anomalyOption)}
             </div>
           </div>
-        </div>
+        </ScrollReveal>
 
         {/* Block 4 */}
-        <div className="story-row alternate prominent-row">
+        <ScrollReveal className="story-row alternate prominent-row">
           <div className="story-text">
             <div className="stage-badge crown-jewel">Stage 5: The Crown Jewel</div>
             <h2>Multitask 1D-CNN for Respiration Rate</h2>
@@ -235,7 +236,7 @@ export default function PipelineStory() {
               {renderPlaceholderContent(s5Loading, s5Error, respOption)}
             </div>
           </div>
-        </div>
+        </ScrollReveal>
 
       </div>
     </section>
