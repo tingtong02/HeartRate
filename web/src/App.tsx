@@ -1,14 +1,11 @@
-import React from "react";
 import Hero from "./components/Hero";
+import PipelineStory from "./components/PipelineStory";
 
 export default function App() {
   return (
     <div className="portfolio-app">
       <Hero />
-      {/* 
-        Future phases (Phase 2+) will inject the scrolling 
-        narrative sections below the Hero. 
-      */}
+      <PipelineStory />
     </div>
   );
 }

@@ -55,14 +55,8 @@ body {
 }
 
 @keyframes fadeInUp {
-  from { 
-    opacity: 0; 
-    transform: translateY(30px); 
-  }
-  to { 
-    opacity: 1; 
-    transform: translateY(0); 
-  }
+  from { opacity: 0; transform: translateY(30px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .author-branding {
@@ -146,4 +140,137 @@ body {
   transform: translateY(-2px);
   box-shadow: 0 6px 20px 0 rgba(30, 41, 59, 0.3);
   background: var(--accent-primary);
+}
+
+/* --- Phase 2: Narrative Skeleton --- */
+.pipeline-story {
+  padding: 6rem 2rem;
+  background-color: var(--surface);
+}
+
+.story-container {
+  max-width: 1100px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8rem;
+}
+
+.story-row {
+  display: flex;
+  align-items: center;
+  gap: 4rem;
+}
+
+.story-row.alternate {
+  flex-direction: row-reverse;
+}
+
+.story-text {
+  flex: 1;
+}
+
+.story-visual {
+  flex: 1;
+  width: 100%;
+}
+
+.stage-badge {
+  display: inline-block;
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--accent-secondary);
+  background: rgba(14, 165, 233, 0.1);
+  padding: 0.4rem 1rem;
+  border-radius: 999px;
+  margin-bottom: 1rem;
+}
+
+.crown-jewel {
+  color: #fff;
+  background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+}
+
+.story-text h2 {
+  font-size: clamp(2rem, 3vw, 2.5rem);
+  font-weight: 800;
+  color: var(--text-dark);
+  margin-bottom: 1.25rem;
+  line-height: 1.2;
+}
+
+.story-text p {
+  font-size: 1.1rem;
+  color: var(--text-muted);
+  margin-bottom: 1.5rem;
+}
+
+.feature-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.feature-list li {
+  position: relative;
+  padding-left: 1.5rem;
+  margin-bottom: 0.6rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.feature-list li::before {
+  content: "→";
+  position: absolute;
+  left: 0;
+  color: var(--accent-primary);
+  font-weight: bold;
+}
+
+.chart-placeholder {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background-color: #F1F5F9;
+  border-radius: 12px;
+  box-shadow: var(--shadow-md);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 2rem;
+  text-align: center;
+  color: var(--text-muted);
+  font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+  font-size: 0.95rem;
+  border: 1px dashed var(--border);
+}
+
+.large-placeholder {
+  aspect-ratio: 4 / 3;
+}
+
+/* Responsive Layout */
+@media (max-width: 900px) {
+  .story-row, .story-row.alternate {
+    flex-direction: column;
+    gap: 3rem;
+  }
+  
+  .story-text {
+    order: 1;
+    text-align: left;
+  }
+  
+  .story-visual {
+    order: 2;
+  }
+  
+  .pipeline-story {
+    padding: 4rem 1.5rem;
+  }
+
+  .story-container {
+    gap: 5rem;
+  }
 }
